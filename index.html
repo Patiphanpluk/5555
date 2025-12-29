@@ -1,510 +1,298 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, collection, doc, setDoc, 
-  onSnapshot, addDoc, updateDoc, deleteDoc, 
-  serverTimestamp 
-} from 'firebase/firestore';
-import { 
-  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken 
-} from 'firebase/auth';
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบส่งรูปขึ้นจออัจฉริยะ</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;700&display=swap');
+        body { font-family: 'Kanit', sans-serif; }
+        .cursor-none { cursor: none; }
+    </style>
+</head>
+<body class="bg-slate-950 text-white">
+    <div id="root"></div>
 
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'photo-queue-v1';
+    <!-- Added data-type="module" to fix "require is not defined" error with Babel -->
+    <script type="text/babel" data-type="module">
+        const { useState, useEffect, useRef } = React;
 
-// --- Fixed Paths (Must result in even segments for doc refs) ---
-// Collection path: artifacts/{appId}/public/data/settings (5 segments)
-// Doc path: artifacts/{appId}/public/data/settings/main (6 segments)
-const SETTINGS_COLLECTION = ['artifacts', appId, 'public', 'data', 'settings'];
-const QUEUE_COLLECTION = ['artifacts', appId, 'public', 'data', 'queue'];
+        // --- Firebase Modules ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-// --- Simple SVG Icons to replace Lucide and avoid "Object as child" errors ---
-const Icons = {
-  Monitor: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>,
-  Settings: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-  User: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
-  Upload: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>,
-  Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
-  Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
-  X: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
-  Image: () => <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-};
+        // --- Configuration Handling ---
+        const getFirebaseConfig = () => {
+            try {
+                if (typeof __firebase_config !== 'undefined') {
+                    return JSON.parse(__firebase_config);
+                }
+            } catch (e) {
+                console.error("Firebase config error:", e);
+            }
+            // Fallback empty config or instructions
+            return null;
+        };
 
-const App = () => {
-  const [user, setUser] = useState(null);
-  const [view, setView] = useState('customer');
-  const [config, setConfig] = useState({
-    title: "Welcome to Our Event",
-    transitionSpeed: 5000,
-    autoPlay: true,
-    showName: true,
-    showTime: true,
-    theme: 'dark'
-  });
-  const [queue, setQueue] = useState([]);
-  const [loading, setLoading] = useState(true);
+        const firebaseConfig = getFirebaseConfig();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'photo-queue-v1';
 
-  // 1. Authentication (RULE 3)
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth Error:", err);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // 2. Fetch Config & Queue (Only after user is authenticated)
-  useEffect(() => {
-    if (!user) return;
-
-    // Listen to Config (doc path has 6 segments now)
-    const configDocRef = doc(db, ...SETTINGS_COLLECTION, 'main');
-    const unsubConfig = onSnapshot(configDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setConfig(docSnap.data());
-      } else {
-        setDoc(configDocRef, config);
-      }
-    }, (err) => console.error("Config fetch error:", err));
-
-    // Listen to Queue
-    const queueRef = collection(db, ...QUEUE_COLLECTION);
-    const unsubQueue = onSnapshot(queueRef, (snapshot) => {
-      const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      const sorted = items.sort((a, b) => {
-        const timeA = a.createdAt?.seconds || 0;
-        const timeB = b.createdAt?.seconds || 0;
-        return timeB - timeA;
-      });
-      setQueue(sorted);
-    }, (err) => console.error("Queue fetch error:", err));
-
-    return () => {
-      unsubConfig();
-      unsubQueue();
-    };
-  }, [user]);
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-screen bg-slate-900 text-white">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-    </div>
-  );
-
-  return (
-    <div className={`min-h-screen ${config.theme === 'dark' ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'} transition-colors duration-500`}>
-      {view !== 'display' && (
-        <nav className="fixed top-0 w-full z-50 bg-opacity-80 backdrop-blur-md border-b border-white/10 p-4 flex justify-around items-center">
-          <button onClick={() => setView('customer')} className={`flex items-center gap-2 px-4 py-2 rounded-full transition ${view === 'customer' ? 'bg-blue-600 text-white' : 'hover:bg-white/10'}`}>
-            <Icons.User /> <span className="hidden sm:inline">หน้าลูกค้า</span>
-          </button>
-          <button onClick={() => setView('admin')} className={`flex items-center gap-2 px-4 py-2 rounded-full transition ${view === 'admin' ? 'bg-purple-600 text-white' : 'hover:bg-white/10'}`}>
-            <Icons.Settings /> <span className="hidden sm:inline">แอดมิน</span>
-          </button>
-          <button onClick={() => setView('display')} className={`flex items-center gap-2 px-4 py-2 rounded-full transition ${view === 'display' ? 'bg-green-600 text-white' : 'hover:bg-white/10'}`}>
-            <Icons.Monitor /> <span className="hidden sm:inline">หน้าจอแสดงผล</span>
-          </button>
-        </nav>
-      )}
-
-      <div className={`${view !== 'display' ? 'pt-20' : ''} h-full`}>
-        {view === 'customer' && <CustomerView config={config} user={user} />}
-        {view === 'admin' && <AdminView config={config} queue={queue} />}
-        {view === 'display' && <DisplayView config={config} queue={queue} setView={setView} />}
-      </div>
-    </div>
-  );
-};
-
-// --- View: Customer ---
-const CustomerView = ({ config, user }) => {
-  const [formData, setFormData] = useState({ name: '', message: '', imageUrl: '' });
-  const [status, setStatus] = useState(null);
-  const [uploading, setUploading] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.imageUrl || !user) return;
-    setUploading(true);
-    try {
-      await addDoc(collection(db, ...QUEUE_COLLECTION), {
-        ...formData,
-        status: 'pending',
-        createdAt: serverTimestamp(),
-        userId: user.uid
-      });
-      setStatus('success');
-      setFormData({ name: '', message: '', imageUrl: '' });
-      setTimeout(() => setStatus(null), 5000);
-    } catch (err) {
-      console.error(err);
-      setStatus('error');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 1.5 * 1024 * 1024) {
-        alert("ไฟล์ใหญ่เกินไป (จำกัด 1.5MB)");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => setFormData({ ...formData, imageUrl: reader.result });
-      reader.readAsDataURL(file);
-    }
-  };
-
-  return (
-    <div className="max-w-md mx-auto p-6">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
-          {config.title}
-        </h1>
-        <p className="opacity-60 mt-2">ส่งรูปภาพของคุณขึ้นหน้าจอเลย!</p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="relative group">
-          <div className={`w-full h-64 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center overflow-hidden transition ${formData.imageUrl ? 'border-blue-500' : 'border-white/20 hover:border-white/40'}`}>
-            {formData.imageUrl ? (
-              <img src={formData.imageUrl} className="w-full h-full object-cover" alt="Preview" />
-            ) : (
-              <div className="text-center p-4">
-                <Icons.Image />
-                <p className="text-sm opacity-50 mt-2">คลิกเพื่อเลือกรูปภาพ</p>
-              </div>
-            )}
-            <input type="file" accept="image/*" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
-          </div>
-          {formData.imageUrl && (
-            <button type="button" onClick={() => setFormData({...formData, imageUrl: ''})} className="absolute top-2 right-2 bg-red-500 p-1 rounded-full shadow-lg">
-              <Icons.X />
-            </button>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1 opacity-70">ชื่อของคุณ</label>
-          <input 
-            required 
-            type="text" 
-            value={formData.name}
-            onChange={e => setFormData({...formData, name: e.target.value})}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" 
-            placeholder="ใส่ชื่อเล่น..."
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1 opacity-70">ข้อความโดนๆ</label>
-          <textarea 
-            value={formData.message}
-            onChange={e => setFormData({...formData, message: e.target.value})}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" 
-            placeholder="ฝากความถึงเพื่อน..."
-            rows="2"
-          />
-        </div>
-
-        <button 
-          disabled={uploading || !formData.imageUrl}
-          className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition ${uploading || !formData.imageUrl ? 'bg-slate-800 opacity-50' : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:shadow-lg hover:shadow-blue-500/30'}`}
-        >
-          {uploading ? "กำลังส่ง..." : <><Icons.Upload /> ส่งขึ้นจอ</>}
-        </button>
-
-        {status === 'success' && (
-          <div className="bg-green-500/20 border border-green-500/50 text-green-400 p-4 rounded-xl text-center flex items-center justify-center gap-2">
-            <Icons.Check /> ส่งเรียบร้อย! รอแอดมินอนุมัตินะครับ
-          </div>
-        )}
-      </form>
-    </div>
-  );
-};
-
-// --- View: Admin ---
-const AdminView = ({ config, queue }) => {
-  const [activeTab, setActiveTab] = useState('queue');
-
-  const updateConfig = (key, value) => {
-    setDoc(doc(db, ...SETTINGS_COLLECTION, 'main'), { ...config, [key]: value });
-  };
-
-  const updateStatus = async (id, status) => {
-    await updateDoc(doc(db, ...QUEUE_COLLECTION, id), { status });
-  };
-
-  const deleteItem = async (id) => {
-    await deleteDoc(doc(db, ...QUEUE_COLLECTION, id));
-  };
-
-  const clearQueue = async () => {
-    if (window.confirm("คุณแน่ใจหรือไม่ที่จะลบรูปทั้งหมดในคิว?")) {
-      queue.forEach(item => deleteDoc(doc(db, ...QUEUE_COLLECTION, item.id)));
-    }
-  };
-
-  const pending = queue.filter(i => i.status === 'pending');
-  const approved = queue.filter(i => i.status === 'approved');
-
-  return (
-    <div className="max-w-5xl mx-auto p-4 md:p-6 pb-24">
-      <div className="flex gap-4 mb-8">
-        <button onClick={() => setActiveTab('queue')} className={`px-6 py-2 rounded-xl flex items-center gap-2 ${activeTab === 'queue' ? 'bg-white/10' : 'opacity-50'}`}>
-          <span className="font-bold text-sm">จัดการคิว ({pending.length})</span>
-        </button>
-        <button onClick={() => setActiveTab('settings')} className={`px-6 py-2 rounded-xl flex items-center gap-2 ${activeTab === 'settings' ? 'bg-white/10' : 'opacity-50'}`}>
-          <span className="font-bold text-sm">ตั้งค่าระบบ</span>
-        </button>
-      </div>
-
-      {activeTab === 'queue' ? (
-        <div className="space-y-8">
-          <section>
-            <div className="flex justify-between items-end mb-4">
-              <h2 className="text-xl font-bold flex items-center gap-2 text-yellow-400">รออนุมัติ</h2>
-              <p className="text-xs opacity-50">{pending.length} รายการ</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pending.map(item => (
-                <div key={item.id} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden group">
-                  <div className="h-48 relative">
-                    <img src={item.imageUrl} className="w-full h-full object-cover" alt="" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-3">
-                      <button onClick={() => updateStatus(item.id, 'approved')} className="bg-green-500 p-3 rounded-full hover:scale-110 transition shadow-lg">
-                        <Icons.Check />
-                      </button>
-                      <button onClick={() => deleteItem(item.id)} className="bg-red-500 p-3 rounded-full hover:scale-110 transition shadow-lg">
-                        <Icons.Trash />
-                      </button>
+        if (!firebaseConfig) {
+            ReactDOM.createRoot(document.getElementById('root')).render(
+                <div className="flex items-center justify-center h-screen p-4 text-center">
+                    <div>
+                        <h1 className="text-2xl font-bold text-red-500 mb-2">ไม่พบการตั้งค่า Firebase</h1>
+                        <p className="opacity-70">กรุณาตรวจสอบว่าได้ตั้งค่า Firebase Config อย่างถูกต้อง</p>
                     </div>
-                  </div>
-                  <div className="p-4">
-                    <p className="font-bold text-lg truncate">{item.name}</p>
-                    <p className="text-sm opacity-60 truncate">{item.message || '-'}</p>
-                  </div>
                 </div>
-              ))}
-              {pending.length === 0 && <div className="col-span-full py-12 text-center border-2 border-dashed border-white/5 rounded-2xl opacity-30 italic">ไม่มีรูปภาพที่รอการอนุมัติ</div>}
-            </div>
-          </section>
+            );
+        } else {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
 
-          <section>
-            <div className="flex justify-between items-end mb-4">
-              <h2 className="text-xl font-bold flex items-center gap-2 text-green-400">อนุมัติแล้ว</h2>
-              <button onClick={clearQueue} className="text-xs text-red-400 hover:underline">ล้างคิวทั้งหมด</button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-separate border-spacing-y-2">
-                <thead>
-                  <tr className="text-sm opacity-40">
-                    <th className="pb-2 font-medium">รูป</th>
-                    <th className="pb-2 font-medium">เจ้าของ</th>
-                    <th className="pb-2 font-medium">ข้อความ</th>
-                    <th className="pb-2 font-medium text-right">จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {approved.map(item => (
-                    <tr key={item.id} className="bg-white/5 hover:bg-white/10 transition group">
-                      <td className="p-3 first:rounded-l-xl">
-                        <img src={item.imageUrl} className="w-12 h-12 rounded-lg object-cover" alt="" />
-                      </td>
-                      <td className="p-3 font-medium">{item.name}</td>
-                      <td className="p-3 text-sm opacity-60 max-w-xs truncate">{item.message}</td>
-                      <td className="p-3 last:rounded-r-xl text-right">
-                        <button onClick={() => updateStatus(item.id, 'pending')} className="text-yellow-500 p-2 hover:bg-yellow-500/10 rounded-lg transition mr-1">
-                          <Icons.X />
-                        </button>
-                        <button onClick={() => deleteItem(item.id)} className="text-red-500 p-2 hover:bg-red-500/10 rounded-lg transition">
-                          <Icons.Trash />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {approved.length === 0 && <div className="py-8 text-center opacity-30 italic">ยังไม่มีรูปที่ได้รับการอนุมัติ</div>}
-            </div>
-          </section>
-        </div>
-      ) : (
-        <div className="bg-white/5 border border-white/10 rounded-3xl p-8 max-w-2xl mx-auto space-y-8">
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold">เนื้อหา</h3>
-            <div>
-              <label className="block text-sm opacity-60 mb-2">หัวข้อเรื่อง (Title)</label>
-              <input 
-                type="text" 
-                value={config.title} 
-                onChange={e => updateConfig('title', e.target.value)}
-                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 focus:outline-none"
-              />
-            </div>
-          </div>
+            const SETTINGS_COLLECTION = ['artifacts', appId, 'public', 'data', 'settings'];
+            const QUEUE_COLLECTION = ['artifacts', appId, 'public', 'data', 'queue'];
 
-          <div className="space-y-4 border-t border-white/10 pt-8">
-            <h3 className="text-lg font-bold">การแสดงผล</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm opacity-60 mb-2">ความเร็ว (มิลลิวินาที)</label>
-                <input 
-                  type="number" 
-                  step="500"
-                  value={config.transitionSpeed} 
-                  onChange={e => updateConfig('transitionSpeed', parseInt(e.target.value) || 5000)}
-                  className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2 focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center gap-4">
-                <input 
-                  type="checkbox" 
-                  id="autoplay"
-                  checked={config.autoPlay} 
-                  onChange={e => updateConfig('autoPlay', e.target.checked)}
-                  className="w-5 h-5 rounded-lg accent-blue-500"
-                />
-                <label htmlFor="autoplay" className="text-sm cursor-pointer">เล่นอัตโนมัติ</label>
-              </div>
-              <div className="flex items-center gap-4">
-                <input 
-                  type="checkbox" 
-                  id="showname"
-                  checked={config.showName} 
-                  onChange={e => updateConfig('showName', e.target.checked)}
-                  className="w-5 h-5 rounded-lg accent-blue-500"
-                />
-                <label htmlFor="showname" className="text-sm cursor-pointer">แสดงชื่อคนส่ง</label>
-              </div>
-              <div className="flex items-center gap-4">
-                <input 
-                  type="checkbox" 
-                  id="darktheme"
-                  checked={config.theme === 'dark'} 
-                  onChange={e => updateConfig('theme', e.target.checked ? 'dark' : 'light')}
-                  className="w-5 h-5 rounded-lg accent-blue-500"
-                />
-                <label htmlFor="darktheme" className="text-sm cursor-pointer">ธีมมืด (Dark Mode)</label>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+            // --- SVG Icons ---
+            const Icons = {
+                Monitor: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>,
+                Settings: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+                User: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
+                Upload: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>,
+                Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+                Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
+                X: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
+                Image: () => <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            };
 
-// --- View: Display ---
-const DisplayView = ({ config, queue, setView }) => {
-  const [index, setIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const approvedItems = queue.filter(i => i.status === 'approved');
-  const timerRef = useRef(null);
+            const CustomerView = ({ config, user }) => {
+                const [formData, setFormData] = useState({ name: '', message: '', imageUrl: '' });
+                const [status, setStatus] = useState(null);
+                const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    if (config.autoPlay && approvedItems.length > 1) {
-      timerRef.current = setInterval(() => {
-        handleNext();
-      }, config.transitionSpeed);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [config.autoPlay, config.transitionSpeed, approvedItems.length, index]);
+                const handleSubmit = async (e) => {
+                    e.preventDefault();
+                    if (!formData.imageUrl || !user) return;
+                    setUploading(true);
+                    try {
+                        await addDoc(collection(db, ...QUEUE_COLLECTION), {
+                            ...formData,
+                            status: 'pending',
+                            createdAt: serverTimestamp(),
+                            userId: user.uid
+                        });
+                        setStatus('success');
+                        setFormData({ name: '', message: '', imageUrl: '' });
+                        setTimeout(() => setStatus(null), 5000);
+                    } catch (err) {
+                        console.error(err);
+                        setStatus('error');
+                    } finally {
+                        setUploading(false);
+                    }
+                };
 
-  const handleNext = () => {
-    setIsTransitioning(true);
-    setTimeout(() => {
-      setIndex(prev => (prev + 1) % approvedItems.length);
-      setIsTransitioning(false);
-    }, 500);
-  };
+                const handleFileChange = (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        if (file.size > 1.5 * 1024 * 1024) {
+                            alert("ไฟล์ใหญ่เกินไป (จำกัด 1.5MB)");
+                            return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => setFormData({ ...formData, imageUrl: reader.result });
+                        reader.readAsDataURL(file);
+                    }
+                };
 
-  if (approvedItems.length === 0) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center text-center p-12 overflow-hidden relative" onClick={() => setView('admin')}>
-        <div className="absolute inset-0 bg-gradient-to-tr from-blue-900/20 to-purple-900/20 animate-pulse"></div>
-        <h1 className="text-5xl font-black mb-4 z-10">{config.title}</h1>
-        <div className="bg-white/5 backdrop-blur-xl p-8 rounded-3xl border border-white/10 z-10 max-w-lg">
-          <Icons.Image />
-          <p className="text-xl opacity-60 mt-4">ยังไม่มีรูปภาพที่จะแสดงในขณะนี้</p>
-          <p className="mt-4 text-sm font-mono opacity-40 italic">Double click หน้าจอเพื่อเข้าแอดมิน</p>
-        </div>
-      </div>
-    );
-  }
+                return (
+                    <div className="max-w-md mx-auto p-6">
+                        <div className="text-center mb-8">
+                            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">{config.title}</h1>
+                            <p className="opacity-60 mt-2">ส่งรูปภาพของคุณขึ้นหน้าจอเลย!</p>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div className="relative group">
+                                <div className={`w-full h-64 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center overflow-hidden transition ${formData.imageUrl ? 'border-blue-500' : 'border-white/20 hover:border-white/40'}`}>
+                                    {formData.imageUrl ? (
+                                        <img src={formData.imageUrl} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="text-center p-4">
+                                            <Icons.Image />
+                                            <p className="text-sm opacity-50 mt-2">คลิกเพื่อเลือกรูปภาพ</p>
+                                        </div>
+                                    )}
+                                    <input type="file" accept="image/*" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                </div>
+                                {formData.imageUrl && <button type="button" onClick={() => setFormData({...formData, imageUrl: ''})} className="absolute top-2 right-2 bg-red-500 p-1 rounded-full"><Icons.X /></button>}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 opacity-70">ชื่อของคุณ</label>
+                                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none" placeholder="ใส่ชื่อเล่น..." />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 opacity-70">ข้อความโดนๆ</label>
+                                <textarea value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none" placeholder="ฝากความถึงเพื่อน..." rows="2" />
+                            </div>
+                            <button disabled={uploading || !formData.imageUrl} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition ${uploading || !formData.imageUrl ? 'bg-slate-800 opacity-50' : 'bg-blue-600 hover:bg-blue-500'}`}>
+                                {uploading ? "กำลังส่ง..." : <><Icons.Upload /> ส่งขึ้นจอ</>}
+                            </button>
+                            {status === 'success' && <div className="bg-green-500/20 border border-green-500/50 text-green-400 p-4 rounded-xl text-center">ส่งเรียบร้อย! รอแอดมินอนุมัตินะครับ</div>}
+                        </form>
+                    </div>
+                );
+            };
 
-  const currentItem = approvedItems[index];
+            const AdminView = ({ config, queue }) => {
+                const [activeTab, setActiveTab] = useState('queue');
+                const updateConfig = (key, value) => { setDoc(doc(db, ...SETTINGS_COLLECTION, 'main'), { ...config, [key]: value }); };
+                const updateStatus = (id, status) => { updateDoc(doc(db, ...QUEUE_COLLECTION, id), { status }); };
+                const deleteItem = (id) => { deleteDoc(doc(db, ...QUEUE_COLLECTION, id)); };
+                const pending = queue.filter(i => i.status === 'pending');
+                const approved = queue.filter(i => i.status === 'approved');
 
-  return (
-    <div className="h-screen w-screen bg-black flex items-center justify-center overflow-hidden relative cursor-none" onDoubleClick={() => setView('admin')}>
-      <div 
-        className="absolute inset-0 blur-3xl opacity-30 scale-110"
-        style={{ backgroundImage: `url(${currentItem.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-      ></div>
+                return (
+                    <div className="max-w-5xl mx-auto p-6 pb-24">
+                        <div className="flex gap-4 mb-8">
+                            <button onClick={() => setActiveTab('queue')} className={`px-6 py-2 rounded-xl ${activeTab === 'queue' ? 'bg-white/10' : 'opacity-50'}`}>จัดการคิว ({pending.length})</button>
+                            <button onClick={() => setActiveTab('settings')} className={`px-6 py-2 rounded-xl ${activeTab === 'settings' ? 'bg-white/10' : 'opacity-50'}`}>ตั้งค่าระบบ</button>
+                        </div>
+                        {activeTab === 'queue' ? (
+                            <div className="space-y-8">
+                                <h2 className="text-xl font-bold text-yellow-400">รออนุมัติ</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {pending.map(item => (
+                                        <div key={item.id} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden group relative">
+                                            <img src={item.imageUrl} className="w-full h-48 object-cover" />
+                                            <div className="p-4 flex justify-between items-center">
+                                                <span className="font-bold truncate">{item.name}</span>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => updateStatus(item.id, 'approved')} className="p-2 bg-green-600 rounded-full"><Icons.Check /></button>
+                                                    <button onClick={() => deleteItem(item.id)} className="p-2 bg-red-600 rounded-full"><Icons.Trash /></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <h2 className="text-xl font-bold text-green-400">อนุมัติแล้ว</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 opacity-70">
+                                    {approved.map(item => (
+                                        <div key={item.id} className="bg-white/5 border border-white/10 rounded-xl overflow-hidden p-2">
+                                            <img src={item.imageUrl} className="w-full h-24 object-cover rounded-lg mb-2" />
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs truncate">{item.name}</span>
+                                                <button onClick={() => updateStatus(item.id, 'pending')} className="text-red-400"><Icons.X /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-white/5 p-8 rounded-3xl max-w-xl mx-auto space-y-6 border border-white/10">
+                                <div><label className="block text-sm mb-1 opacity-50">ชื่อหัวข้อ</label><input type="text" value={config.title} onChange={e => updateConfig('title', e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2" /></div>
+                                <div><label className="block text-sm mb-1 opacity-50">ความเร็วสไลด์ (ms)</label><input type="number" step="500" value={config.transitionSpeed} onChange={e => updateConfig('transitionSpeed', parseInt(e.target.value) || 5000)} className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2" /></div>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
 
-      <div className={`w-full h-full flex flex-col p-8 z-10 transition-opacity duration-700 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-4xl font-black italic tracking-tighter text-white/90 drop-shadow-lg">{config.title}</h2>
-          {config.showTime && <div className="text-2xl font-mono text-white/40"><LiveTime /></div>}
-        </div>
+            const DisplayView = ({ config, queue, setView }) => {
+                const [index, setIndex] = useState(0);
+                const [isTransitioning, setIsTransitioning] = useState(false);
+                const approvedItems = queue.filter(i => i.status === 'approved');
 
-        <div className="flex-1 relative flex items-center justify-center min-h-0">
-          <img 
-            src={currentItem.imageUrl} 
-            className="max-w-full max-h-full object-contain rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)]"
-            alt="Current"
-          />
-        </div>
+                useEffect(() => {
+                    if (config.autoPlay && approvedItems.length > 1) {
+                        const t = setInterval(() => {
+                            setIsTransitioning(true);
+                            setTimeout(() => {
+                                setIndex(prev => (prev + 1) % approvedItems.length);
+                                setIsTransitioning(false);
+                            }, 500);
+                        }, config.transitionSpeed);
+                        return () => clearInterval(t);
+                    }
+                }, [config.autoPlay, config.transitionSpeed, approvedItems.length]);
 
-        {(config.showName || currentItem.message) && (
-          <div className="mt-6 bg-black/60 backdrop-blur-md p-8 rounded-3xl border border-white/10 flex items-center gap-8">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0 text-2xl font-bold">
-              {currentItem.name ? currentItem.name[0].toUpperCase() : '?'}
-            </div>
-            <div className="flex-1">
-              {config.showName && <h3 className="text-2xl font-bold text-white">{currentItem.name}</h3>}
-              <p className="text-xl text-white/70 italic line-clamp-1">"{currentItem.message || '...'}"</p>
-            </div>
-          </div>
-        )}
-      </div>
+                if (approvedItems.length === 0) return <div className="h-screen flex items-center justify-center text-2xl opacity-40" onDoubleClick={() => setView('admin')}>ยังไม่มีรูปที่ได้รับการอนุมัติ</div>;
 
-      <div className="absolute bottom-0 left-0 h-1 bg-blue-500/50" style={{ 
-        width: '100%', 
-        transform: `scaleX(${isTransitioning ? 0 : 1})`,
-        transformOrigin: 'left',
-        transition: isTransitioning ? 'none' : `transform ${config.transitionSpeed}ms linear` 
-      }}></div>
-    </div>
-  );
-};
+                const item = approvedItems[index];
+                return (
+                    <div className="h-screen w-screen bg-black flex flex-col relative overflow-hidden" onDoubleClick={() => setView('admin')}>
+                        <div className="absolute inset-0 blur-3xl opacity-20 scale-110" style={{backgroundImage: `url(${item.imageUrl})`, backgroundSize: 'cover'}}></div>
+                        <div className={`flex-1 flex items-center justify-center p-8 z-10 transition-opacity duration-700 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+                            <img src={item.imageUrl} className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl shadow-black" />
+                        </div>
+                        <div className="bg-black/60 backdrop-blur-md p-8 z-10 border-t border-white/10 flex items-center gap-6">
+                            <div className="text-4xl font-bold text-blue-500">{item.name}</div>
+                            <div className="text-3xl italic opacity-70">"{item.message || '...'}"</div>
+                        </div>
+                        <div className="absolute bottom-0 left-0 h-1 bg-blue-600 transition-all" style={{width: '100%', transform: `scaleX(${isTransitioning ? 0 : 1})`, transformOrigin: 'left', transitionDuration: isTransitioning ? '0ms' : `${config.transitionSpeed}ms`, transitionTimingFunction: 'linear'}}></div>
+                    </div>
+                );
+            };
 
-const LiveTime = () => {
-  const [time, setTime] = useState(new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return time.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-};
+            const App = () => {
+                const [user, setUser] = useState(null);
+                const [view, setView] = useState('customer');
+                const [config, setConfig] = useState({ title: "Welcome", transitionSpeed: 5000, autoPlay: true, theme: 'dark' });
+                const [queue, setQueue] = useState([]);
+                const [loading, setLoading] = useState(true);
 
-export default App;
+                useEffect(() => {
+                    const initAuth = async () => {
+                        try {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (e) { console.error(e); }
+                    };
+                    initAuth();
+                    return onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
+                }, []);
+
+                useEffect(() => {
+                    if (!user) return;
+                    const unsubConfig = onSnapshot(doc(db, ...SETTINGS_COLLECTION, 'main'), (s) => s.exists() ? setConfig(s.data()) : setDoc(doc(db, ...SETTINGS_COLLECTION, 'main'), config));
+                    const unsubQueue = onSnapshot(collection(db, ...QUEUE_COLLECTION), (s) => setQueue(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))));
+                    return () => { unsubConfig(); unsubQueue(); };
+                }, [user]);
+
+                if (loading) return <div className="h-screen flex items-center justify-center">กำลังโหลด...</div>;
+
+                return (
+                    <div className="min-h-screen">
+                        {view !== 'display' && (
+                            <nav className="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-md border-b border-white/10 p-4 flex justify-around">
+                                <button onClick={() => setView('customer')} className={`flex items-center gap-2 px-4 py-2 rounded-full ${view === 'customer' ? 'bg-blue-600' : ''}`}><Icons.User /> ลูกค้า</button>
+                                <button onClick={() => setView('admin')} className={`flex items-center gap-2 px-4 py-2 rounded-full ${view === 'admin' ? 'bg-purple-600' : ''}`}><Icons.Settings /> แอดมิน</button>
+                                <button onClick={() => setView('display')} className={`flex items-center gap-2 px-4 py-2 rounded-full ${view === 'display' ? 'bg-green-600' : ''}`}><Icons.Monitor /> หน้าจอ</button>
+                            </nav>
+                        )}
+                        <div className={view !== 'display' ? 'pt-20' : ''}>
+                            {view === 'customer' && <CustomerView config={config} user={user} />}
+                            {view === 'admin' && <AdminView config={config} queue={queue} />}
+                            {view === 'display' && <DisplayView config={config} queue={queue} setView={setView} />}
+                        </div>
+                    </div>
+                );
+            };
+
+            ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        }
+    </script>
+</body>
+</html>
