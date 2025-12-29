@@ -15,17 +15,22 @@
         .tier-silver { background: linear-gradient(135deg, #bdc3c7, #2c3e50); }
         .tier-gold { background: linear-gradient(135deg, #f1c40f, #e67e22); }
         .tier-platinum { background: linear-gradient(135deg, #a29bfe, #6c5ce7); }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
 
     <div id="app" class="min-h-screen flex flex-col max-w-md mx-auto bg-white shadow-2xl overflow-x-hidden relative">
-        <!-- Loading -->
-        <div id="loading-screen" class="fixed inset-0 bg-white z-50 flex items-center justify-center max-w-md mx-auto">
-            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+        
+        <!-- หน้า Loading -->
+        <div id="loading-screen" class="fixed inset-0 bg-white z-[100] flex items-center justify-center max-w-md mx-auto">
+            <div class="text-center space-y-4">
+                <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mx-auto"></div>
+                <p class="text-xs font-bold text-gray-400 animate-pulse uppercase tracking-widest">กำลังเชื่อมต่อฐานข้อมูล...</p>
+            </div>
         </div>
 
-        <!-- Navbar -->
+        <!-- แถบเมนูบน -->
         <nav id="nav-bar" class="hidden bg-white border-b border-gray-100 sticky top-0 z-30 px-4 py-3 flex justify-between items-center shadow-sm">
             <div class="flex items-center gap-2">
                 <div class="bg-indigo-600 p-1.5 rounded-lg text-white">
@@ -41,17 +46,17 @@
             </div>
         </nav>
 
-        <!-- Main Content -->
+        <!-- เนื้อหาหลัก -->
         <main id="main-content" class="flex-grow p-4 overflow-y-auto">
-            <!-- Content will be injected here -->
+            <!-- ข้อมูลจะถูกฉีดเข้ามาที่นี่ -->
         </main>
 
-        <!-- Bottom Nav -->
+        <!-- แถบเมนูล่าง -->
         <div id="bottom-nav" class="hidden border-t bg-white p-2 flex justify-around items-center sticky bottom-0 z-30">
-            <!-- Buttons based on role -->
+            <!-- ปุ่มเมนูตามบทบาท -->
         </div>
 
-        <!-- Notifications -->
+        <!-- การแจ้งเตือน -->
         <div id="notif" class="fixed top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-50 pointer-events-none"></div>
     </div>
 
@@ -60,19 +65,40 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, onSnapshot, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // --- Firebase Configuration Integrated ---
+        const userProvidedConfig = {
+            apiKey: "AIzaSyDadMZYr6lioUdc894l7PZzt6dxs8Ep_gw",
+            authDomain: "test-318d9.firebaseapp.com",
+            projectId: "test-318d9",
+            storageBucket: "test-318d9.firebasestorage.app",
+            messagingSenderId: "313725009474",
+            appId: "1:313725009474:web:42d018f2b4a4ae2c1977db",
+            measurementId: "G-0J344393JS"
+        };
+
+        let firebaseConfig;
+        let finalAppId;
+
+        // Priority check: Environment config > User provided config
+        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+            firebaseConfig = JSON.parse(__firebase_config);
+            finalAppId = typeof __app_id !== 'undefined' ? __app_id : 'loyalty-portable';
+        } else {
+            firebaseConfig = userProvidedConfig;
+            finalAppId = 'loyalty-github-pages';
+        }
+
+        // --- Start App ---
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'loyalty-full-stack';
 
-        // --- Global State ---
         let state = {
             user: null,
             role: 'customer',
             view: 'dashboard',
             userData: null,
-            config: { storeName: 'My Loyalty Shop', rate: 0.1, multiplier: 1, branches: ['Siam', 'Sukhumvit'] },
+            config: { storeName: 'My Loyalty Shop', multiplier: 1, branches: ['Main Branch'] },
             rewards: [],
             transactions: [],
             allCustomers: [],
@@ -80,23 +106,17 @@
             activeQr: null
         };
 
-        // --- Helper: Refresh Icons safely ---
         const refreshIcons = () => {
             if (window.lucide && typeof window.lucide.createIcons === 'function') {
                 window.lucide.createIcons();
             }
         };
 
-        // --- Tier Calculation ---
         const getTier = (pts) => {
             if (pts >= 5000) return { name: 'Platinum', class: 'tier-platinum', icon: 'zap' };
             if (pts >= 1000) return { name: 'Gold', class: 'tier-gold', icon: 'star' };
             return { name: 'Silver', class: 'tier-silver', icon: 'shield' };
         };
-
-        // --- View Handlers ---
-        window.switchRole = (r) => { state.role = r; state.view = r === 'admin' ? 'admin_report' : 'dashboard'; updateUI(); };
-        window.switchView = (v) => { state.view = v; updateUI(); };
 
         const msg = (text, type = 'success') => {
             const container = document.getElementById('notif');
@@ -110,14 +130,17 @@
             setTimeout(() => document.getElementById(id)?.remove(), 3000);
         };
 
-        // --- Data Logic ---
-        
+        // UI View Handlers
+        window.switchRole = (r) => { state.role = r; state.view = r === 'admin' ? 'admin_report' : 'dashboard'; updateUI(); };
+        window.switchView = (v) => { state.view = v; updateUI(); };
+
         window.handleLogin = async () => {
+            if (!state.user) return msg("กำลังเชื่อมต่อ...", "error");
             const phone = document.getElementById('login-phone').value;
             const name = document.getElementById('login-name').value;
             if (!phone || phone.length < 10) return msg("กรุณาใส่เบอร์โทรให้ถูกต้อง", "error");
 
-            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', state.user.uid);
+            const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', state.user.uid);
             await setDoc(userRef, { 
                 uid: state.user.uid, 
                 phone, 
@@ -127,56 +150,15 @@
                 role: 'customer',
                 createdAt: serverTimestamp() 
             }, { merge: true });
-            msg("ลงทะเบียนสำเร็จ!");
-        };
-
-        window.redeemReward = async (rid) => {
-            const reward = state.rewards.find(r => r.id === rid);
-            if (!reward || state.userData.points < reward.points) return msg("คะแนนไม่พอ", "error");
-
-            try {
-                await runTransaction(db, async (tx) => {
-                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', state.user.uid);
-                    const userDoc = await tx.get(userRef);
-                    const currentPoints = userDoc.data().points;
-                    
-                    if (currentPoints < reward.points) throw new Error("คะแนนไม่พอ");
-
-                    tx.update(userRef, { points: currentPoints - reward.points });
-                    
-                    const couponRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'coupons'));
-                    tx.set(couponRef, {
-                        userId: state.user.uid,
-                        rewardName: reward.name,
-                        pointsUsed: reward.points,
-                        status: 'active',
-                        code: Math.random().toString(36).substring(7).toUpperCase(),
-                        timestamp: serverTimestamp()
-                    });
-
-                    const transRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'));
-                    tx.set(transRef, {
-                        userId: state.user.uid,
-                        amount: -reward.points,
-                        reason: `แลกรางวัล: ${reward.name}`,
-                        type: 'redeem',
-                        timestamp: serverTimestamp()
-                    });
-                });
-                msg("แลกสำเร็จ! ตรวจสอบที่หน้าคูปอง");
-                state.view = 'coupons';
-                updateUI();
-            } catch (e) { msg(e.message, "error"); }
+            msg("เข้าสู่ระบบสำเร็จ!");
         };
 
         window.generateQr = async (pts) => {
             if (!pts) return msg("ระบุคะแนน", "error");
             const finalPts = parseInt(pts) * state.config.multiplier;
             try {
-                const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'qr_tokens'), {
-                    points: finalPts,
-                    status: 'active',
-                    createdAt: serverTimestamp()
+                const docRef = await addDoc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'qr_tokens'), {
+                    points: finalPts, status: 'active', createdAt: serverTimestamp()
                 });
                 const url = `${window.location.origin}${window.location.pathname}?token=${docRef.id}`;
                 state.activeQr = { url, pts: finalPts };
@@ -184,165 +166,129 @@
             } catch (e) { msg("สร้าง QR ล้มเหลว", "error"); }
         };
 
+        window.redeemReward = async (rid) => {
+            const reward = state.rewards.find(r => r.id === rid);
+            if (!reward || !state.userData || state.userData.points < reward.points) return msg("คะแนนไม่พอ", "error");
+            try {
+                await runTransaction(db, async (tx) => {
+                    const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', state.user.uid);
+                    const userDoc = await tx.get(userRef);
+                    const currentPoints = userDoc.data().points;
+                    if (currentPoints < reward.points) throw new Error("คะแนนไม่พอ");
+                    tx.update(userRef, { points: currentPoints - reward.points });
+                    const couponRef = doc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'coupons'));
+                    tx.set(couponRef, {
+                        userId: state.user.uid, rewardName: reward.name, pointsUsed: reward.points, status: 'active',
+                        code: Math.random().toString(36).substring(7).toUpperCase(), timestamp: serverTimestamp()
+                    });
+                    tx.set(doc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'transactions')), {
+                        userId: state.user.uid, amount: -reward.points, reason: `แลกรางวัล: ${reward.name}`, type: 'redeem', timestamp: serverTimestamp()
+                    });
+                });
+                msg("แลกสำเร็จ!"); state.view = 'coupons'; updateUI();
+            } catch (e) { msg(e.message, "error"); }
+        };
+
         window.verifyCoupon = async (code) => {
             if (!code) return;
             const q = state.coupons.find(c => c.code === code.toUpperCase());
             if (!q) return msg("ไม่พบรหัสคูปอง", "error");
             if (q.status === 'used') return msg("คูปองนี้ถูกใช้ไปแล้ว", "error");
-
             try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'coupons', q.id), { 
-                    status: 'used', 
-                    verifiedAt: serverTimestamp() 
-                });
+                await updateDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'coupons', q.id), { status: 'used', verifiedAt: serverTimestamp() });
                 msg("ยืนยันคูปองสำเร็จ!");
             } catch (e) { msg("เกิดข้อผิดพลาด", "error"); }
         };
 
-        // --- UI Rendering ---
+        window.saveConfig = async () => {
+            const name = document.getElementById('s-name')?.value || state.config.storeName;
+            try {
+                await setDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'settings', 'app_config'), { ...state.config, storeName: name });
+                msg("บันทึกสำเร็จ");
+            } catch (e) { msg("ผิดพลาด", "error"); }
+        };
 
+        window.saveRule = (m) => { state.config.multiplier = m; window.saveConfig(); };
+
+        window.addRewardPrompt = async () => {
+            const name = prompt("ชื่อของรางวัล:");
+            const pts = prompt("ใช้กี่แต้ม:");
+            if (!name || !pts || isNaN(pts)) return msg("ข้อมูลไม่ครบ", "error");
+            await addDoc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'rewards'), { name, points: parseInt(pts), description: "แลกรับได้ที่ร้าน" });
+            msg("เพิ่มรางวัลสำเร็จ");
+        };
+
+        // --- UI Builders ---
         const updateUI = () => {
             const main = document.getElementById('main-content');
             const nav = document.getElementById('nav-bar');
             const bNav = document.getElementById('bottom-nav');
             if (!main || !nav || !bNav) return;
-            
+
             if (!state.userData?.phone) {
                 renderLogin(main);
-                nav.classList.add('hidden');
-                bNav.classList.add('hidden');
+                nav.classList.add('hidden'); bNav.classList.add('hidden');
             } else {
-                nav.classList.remove('hidden');
-                bNav.classList.remove('hidden');
+                nav.classList.remove('hidden'); bNav.classList.remove('hidden');
                 document.getElementById('nav-store-name').innerText = state.config.storeName;
                 document.getElementById('role-cust').className = state.role === 'customer' ? 'px-3 py-1 rounded-full text-[10px] font-bold transition-all bg-white shadow-sm text-indigo-600' : 'px-3 py-1 rounded-full text-[10px] font-bold transition-all text-gray-400';
                 document.getElementById('role-admin').className = state.role === 'admin' ? 'px-3 py-1 rounded-full text-[10px] font-bold transition-all bg-white shadow-sm text-indigo-600' : 'px-3 py-1 rounded-full text-[10px] font-bold transition-all text-gray-400';
-                
-                if (state.role === 'customer') renderCustomerView(main);
-                else renderAdminView(main);
-                
+                if (state.role === 'customer') renderCustomerView(main); else renderAdminView(main);
                 renderBottomNav(bNav);
             }
             refreshIcons();
         };
 
         const renderLogin = (el) => {
-            el.innerHTML = `<div class="flex flex-col items-center justify-center min-h-[80vh] space-y-8 animate-in text-center p-6">
-                <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-2xl scale-125 mb-4">
-                    <i data-lucide="award" class="w-12 h-12"></i>
-                </div>
-                <div class="space-y-2">
-                    <h2 class="text-3xl font-black text-indigo-900">ยินดีต้อนรับ</h2>
-                    <p class="text-gray-400 font-medium">เข้าสู่ระบบสะสมแต้มอัจฉริยะ</p>
-                </div>
+            el.innerHTML = `<div class="flex flex-col items-center justify-center min-h-[70vh] space-y-8 animate-in text-center p-6">
+                <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-2xl scale-125 mb-4"><i data-lucide="award" class="w-12 h-12"></i></div>
+                <div class="space-y-2"><h2 class="text-3xl font-black text-indigo-900">Member System</h2><p class="text-gray-400 font-medium tracking-tight">กรุณากรอกข้อมูลเพื่อสะสมแต้ม</p></div>
                 <div class="w-full space-y-4">
-                    <input id="login-phone" type="tel" placeholder="เบอร์โทรศัพท์" class="w-full p-4 rounded-2xl bg-gray-100 border-none focus:ring-2 focus:ring-indigo-600 outline-none font-bold text-center text-lg shadow-inner" />
-                    <input id="login-name" type="text" placeholder="ชื่อเล่น (ไม่ระบุก็ได้)" class="w-full p-4 rounded-2xl bg-gray-100 border-none focus:ring-2 focus:ring-indigo-600 outline-none font-bold text-center text-lg shadow-inner" />
-                    <button onclick="handleLogin()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">เริ่มต้นใช้งาน</button>
+                    <input id="login-phone" type="tel" placeholder="เบอร์โทรศัพท์" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-bold text-center text-lg" />
+                    <input id="login-name" type="text" placeholder="ชื่อเล่น" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-bold text-center text-lg" />
+                    <button onclick="handleLogin()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-100 active:scale-95 transition-all">เริ่มต้นใช้งาน</button>
                 </div>
             </div>`;
         };
 
         const renderCustomerView = (el) => {
-            const tier = getTier(state.userData.totalPointsEarned || 0);
-            
+            const tier = getTier(state.userData?.totalPointsEarned || 0);
             if (state.view === 'dashboard') {
                 el.innerHTML = `<div class="space-y-6 animate-in">
                     <div class="${tier.class} rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
                         <div class="absolute -right-4 -top-4 opacity-10"><i data-lucide="${tier.icon}" style="width:160px;height:160px"></i></div>
                         <div class="relative z-10 space-y-4">
                             <div class="flex justify-between items-start">
-                                <div>
-                                    <p class="text-xs font-bold uppercase tracking-widest opacity-70">Member Status</p>
-                                    <h3 class="text-2xl font-black">${tier.name}</h3>
-                                </div>
+                                <div><p class="text-[10px] font-bold uppercase tracking-widest opacity-70">Membership</p><h3 class="text-2xl font-black">${tier.name}</h3></div>
                                 <div class="bg-white/20 p-2 rounded-xl backdrop-blur-md"><i data-lucide="${tier.icon}" class="w-5 h-5"></i></div>
                             </div>
-                            <div>
-                                <h2 class="text-5xl font-black">${state.userData.points.toLocaleString()} <span class="text-sm font-bold opacity-60">Points</span></h2>
-                            </div>
-                            <div class="pt-2 border-t border-white/20 flex justify-between items-center text-xs font-bold">
-                                <span>${state.userData.name}</span>
-                                <span>${state.userData.phone}</span>
-                            </div>
+                            <div><h2 class="text-5xl font-black">${(state.userData?.points || 0).toLocaleString()} <span class="text-sm font-bold opacity-60">Pts</span></h2></div>
+                            <div class="pt-2 border-t border-white/20 flex justify-between items-center text-xs font-bold"><span>${state.userData?.name}</span><span>${state.userData?.phone}</span></div>
                         </div>
                     </div>
-
                     <div class="grid grid-cols-2 gap-4">
-                        <button onclick="switchView('rewards')" class="bg-indigo-50 p-6 rounded-3xl flex flex-col items-center gap-2 group transition-all active:scale-95">
-                            <div class="bg-indigo-600 p-3 rounded-2xl text-white group-hover:rotate-12 transition-transform shadow-lg shadow-indigo-200"><i data-lucide="gift"></i></div>
-                            <span class="font-bold text-indigo-900">แลกรางวัล</span>
-                        </button>
-                        <button onclick="switchView('history')" class="bg-orange-50 p-6 rounded-3xl flex flex-col items-center gap-2 group transition-all active:scale-95">
-                            <div class="bg-orange-500 p-3 rounded-2xl text-white group-hover:-rotate-12 transition-transform shadow-lg shadow-orange-200"><i data-lucide="history"></i></div>
-                            <span class="font-bold text-orange-900">ประวัติ</span>
-                        </button>
+                        <button onclick="switchView('rewards')" class="bg-indigo-50 p-6 rounded-3xl flex flex-col items-center gap-2 group transition-all active:scale-95"><div class="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg shadow-indigo-200"><i data-lucide="gift"></i></div><span class="font-bold text-indigo-900">แลกรางวัล</span></button>
+                        <button onclick="switchView('history')" class="bg-orange-50 p-6 rounded-3xl flex flex-col items-center gap-2 group transition-all active:scale-95"><div class="bg-orange-500 p-3 rounded-2xl text-white shadow-lg shadow-orange-200"><i data-lucide="history"></i></div><span class="font-bold text-orange-900">ประวัติ</span></button>
                     </div>
-
-                    <div class="space-y-4">
-                        <h4 class="font-black text-lg text-indigo-900 px-1">กิจกรรมล่าสุด</h4>
-                        ${state.transactions.slice(0, 3).map(t => `<div class="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 ${t.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} rounded-xl flex items-center justify-center">
-                                    <i data-lucide="${t.amount > 0 ? 'arrow-up-right' : 'arrow-down-right'}" class="w-5 h-5"></i>
-                                </div>
-                                <div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('th-TH') : '...'}</p></div>
-                            </div>
-                            <div class="font-black ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div>
-                        </div>`).join('')}
-                    </div>
+                    <div class="space-y-4"><h4 class="font-black text-lg text-indigo-900">กิจกรรมล่าสุด</h4>
+                    ${state.transactions.slice(0, 3).map(t => `<div class="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 ${t.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} rounded-xl flex items-center justify-center"><i data-lucide="${t.amount > 0 ? 'plus' : 'minus'}" class="w-4 h-4"></i></div>
+                            <div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('th-TH') : '...'}</p></div>
+                        </div><div class="font-black text-lg ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div>
+                    </div>`).join('')}</div>
                 </div>`;
             } else if (state.view === 'rewards') {
-                el.innerHTML = `<div class="space-y-6 animate-in">
-                    <h2 class="text-2xl font-black text-indigo-900">รายการของรางวัล</h2>
-                    <div class="grid grid-cols-1 gap-4 pb-10">
-                        ${state.rewards.map(r => `<div class="bg-white border p-4 rounded-3xl flex gap-4 shadow-sm hover:shadow-md transition-shadow">
-                            <div class="w-20 h-20 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-200"><i data-lucide="package" class="w-10 h-10"></i></div>
-                            <div class="flex-grow flex flex-col justify-between">
-                                <div><h4 class="font-bold text-gray-800">${r.name}</h4><p class="text-xs text-gray-400">${r.description || ''}</p></div>
-                                <div class="flex justify-between items-end">
-                                    <span class="text-indigo-600 font-black">${r.points} <span class="text-[10px]">แต้ม</span></span>
-                                    <button onclick="redeemReward('${r.id}')" class="px-4 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-lg shadow-indigo-100" ${state.userData.points < r.points ? 'disabled' : ''}>แลกเลย</button>
-                                </div>
-                            </div>
-                        </div>`).join('')}
-                    </div>
-                </div>`;
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">ของรางวัล</h2><div class="grid grid-cols-1 gap-4">
+                ${state.rewards.map(r => `<div class="bg-white border p-4 rounded-3xl flex gap-4 shadow-sm"><div class="w-20 h-20 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-200"><i data-lucide="package" class="w-10 h-10"></i></div><div class="flex-grow flex flex-col justify-between"><div><h4 class="font-bold text-gray-800">${r.name}</h4><p class="text-[10px] text-gray-400">ใช้คะแนนแลกสิทธิ์</p></div><div class="flex justify-between items-end"><span class="text-indigo-600 font-black">${r.points} <span class="text-[10px]">แต้ม</span></span><button onclick="redeemReward('${r.id}')" class="px-4 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold disabled:opacity-50" ${state.userData.points < r.points ? 'disabled' : ''}>แลกเลย</button></div></div></div>`).join('')}
+                </div></div>`;
             } else if (state.view === 'coupons') {
-                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
-                    <h2 class="text-2xl font-black text-indigo-900">คูปองของฉัน</h2>
-                    <div class="space-y-4">
-                        ${state.coupons.map(c => `<div class="bg-white border-2 border-dashed ${c.status === 'used' ? 'opacity-50 border-gray-200' : 'border-indigo-100'} p-6 rounded-3xl text-center space-y-4 relative overflow-hidden">
-                            ${c.status === 'used' ? '<div class="absolute inset-0 bg-white/60 z-10 flex items-center justify-center font-black text-red-600 text-2xl rotate-12">ใช้แล้ว</div>' : ''}
-                            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Reward Code</p>
-                            <h3 class="text-2xl font-black text-indigo-600 tracking-tighter">${c.code}</h3>
-                            <div class="bg-gray-50 p-4 rounded-2xl flex flex-col items-center">
-                                <div id="qr-${c.id}" class="mb-2 bg-white p-2 rounded-xl"></div>
-                                <p class="font-bold text-sm">${c.rewardName}</p>
-                            </div>
-                        </div>`).join('')}
-                        ${state.coupons.length === 0 ? '<p class="text-center py-20 text-gray-400">ยังไม่มีคูปอง</p>' : ''}
-                    </div>
-                </div>`;
-                state.coupons.forEach(c => {
-                    const container = document.getElementById(`qr-${c.id}`);
-                    if (container) {
-                        new QRCode(container, { text: c.code, width: 100, height: 100 });
-                    }
-                });
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">คูปองของฉัน</h2><div class="space-y-4">
+                ${state.coupons.map(c => `<div class="bg-white border-2 border-dashed ${c.status === 'used' ? 'opacity-50 border-gray-200' : 'border-indigo-100'} p-6 rounded-3xl text-center space-y-4 relative overflow-hidden">${c.status === 'used' ? '<div class="absolute inset-0 bg-white/60 z-10 flex items-center justify-center font-black text-red-600 text-2xl rotate-12">ใช้แล้ว</div>' : ''}<p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reward Code</p><h3 class="text-2xl font-black text-indigo-600">${c.code}</h3><div class="bg-gray-50 p-4 rounded-2xl flex flex-col items-center"><div id="qr-${c.id}" class="mb-2 bg-white p-2 rounded-xl"></div><p class="font-bold text-sm">${c.rewardName}</p></div></div>`).join('')}
+                ${state.coupons.length === 0 ? '<p class="text-center py-20 text-gray-400">ไม่มีคูปองใช้งาน</p>' : ''}</div></div>`;
+                state.coupons.forEach(c => { const container = document.getElementById(`qr-${c.id}`); if (container) new QRCode(container, { text: c.code, width: 100, height: 100 }); });
             } else if (state.view === 'history') {
-                el.innerHTML = `<div class="space-y-4 animate-in pb-10">
-                    <h2 class="text-2xl font-black text-indigo-900">ประวัติการใช้งาน</h2>
-                    ${state.transactions.map(t => `<div class="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 ${t.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} rounded-xl flex items-center justify-center">
-                                <i data-lucide="${t.amount > 0 ? 'plus' : 'minus'}" class="w-4 h-4"></i>
-                            </div>
-                            <div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleString('th-TH') : '...'}</p></div>
-                        </div>
-                        <div class="font-black text-lg ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div>
-                    </div>`).join('')}
-                </div>`;
+                el.innerHTML = `<div class="space-y-4 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">ประวัติ</h2>${state.transactions.map(t => `<div class="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 ${t.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} rounded-xl flex items-center justify-center"><i data-lucide="${t.amount > 0 ? 'plus' : 'minus'}" class="w-4 h-4"></i></div><div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleString('th-TH') : '...'}</p></div></div><div class="font-black text-lg ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div></div>`).join('')}</div>`;
             }
         };
 
@@ -350,233 +296,100 @@
             if (state.view === 'admin_report') {
                 const totalGiven = state.transactions.filter(t => t.type === 'earn').reduce((sum, t) => sum + (t.amount || 0), 0);
                 const totalRedeemed = state.transactions.filter(t => t.type === 'redeem').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-                
-                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
-                    <h2 class="text-2xl font-black text-indigo-900">รายงานสรุป</h2>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-xl shadow-indigo-100">
-                            <p class="text-[10px] font-bold opacity-70 uppercase">ลูกค้าทั้งหมด</p>
-                            <h3 class="text-3xl font-black">${state.allCustomers.length}</h3>
-                        </div>
-                        <div class="bg-white border p-6 rounded-3xl">
-                            <p class="text-[10px] font-bold text-gray-400 uppercase">แต้มที่แจกไป</p>
-                            <h3 class="text-3xl font-black text-indigo-600">${totalGiven.toLocaleString()}</h3>
-                        </div>
-                    </div>
-                    
-                    <div class="bg-white border p-6 rounded-3xl space-y-4">
-                        <h4 class="font-bold text-gray-800 text-sm">ประสิทธิภาพระบบ (หมุนเวียนแต้ม)</h4>
-                        <div class="w-full bg-gray-100 h-4 rounded-full overflow-hidden flex">
-                            <div class="bg-indigo-500 h-full" style="width: ${totalGiven > 0 ? Math.min(100, (totalRedeemed/totalGiven)*100) : 0}%"></div>
-                        </div>
-                        <div class="flex justify-between text-[10px] font-bold">
-                            <span class="text-gray-400">แลกคืน: ${totalRedeemed.toLocaleString()} แต้ม</span>
-                            <span class="text-indigo-600">${totalGiven > 0 ? Math.round((totalRedeemed/totalGiven)*100) : 0}% ของทั้งหมด</span>
-                        </div>
-                    </div>
-
-                    <div class="space-y-4">
-                        <h4 class="font-bold text-gray-800">ลูกค้ายอดสะสมสูงสุด</h4>
-                        ${state.allCustomers.sort((a,b) => (b.totalPointsEarned || 0) - (a.totalPointsEarned || 0)).slice(0, 5).map((c, i) => `<div class="flex items-center gap-4 p-3 border rounded-2xl bg-white shadow-sm">
-                            <div class="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 text-xs">${i+1}</div>
-                            <div class="flex-grow"><p class="font-bold text-sm">${c.name || 'Unknown'}</p><p class="text-[10px] text-gray-400">${c.phone}</p></div>
-                            <div class="text-right font-black text-indigo-600 text-sm">${(c.totalPointsEarned || 0).toLocaleString()} <span class="text-[8px] opacity-50 uppercase">pts</span></div>
-                        </div>`).join('')}
-                    </div>
-                </div>`;
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">Report</h2><div class="grid grid-cols-2 gap-4"><div class="bg-indigo-600 p-6 rounded-3xl text-white"><p class="text-[10px] font-bold opacity-70 uppercase">ลูกค้า</p><h3 class="text-3xl font-black">${state.allCustomers.length}</h3></div><div class="bg-white border p-6 rounded-3xl"><p class="text-[10px] font-bold text-gray-400 uppercase">แต้มที่แจก</p><h3 class="text-3xl font-black text-indigo-600">${totalGiven.toLocaleString()}</h3></div></div><div class="bg-white border p-6 rounded-3xl space-y-4"><h4 class="font-bold text-gray-800 text-sm">การแลกคืน</h4><div class="w-full bg-gray-100 h-4 rounded-full overflow-hidden flex"><div class="bg-indigo-500 h-full" style="width: ${totalGiven > 0 ? Math.min(100, (totalRedeemed/totalGiven)*100) : 0}%"></div></div><div class="flex justify-between text-[10px] font-bold"><span class="text-gray-400">แลก: ${totalRedeemed.toLocaleString()} แต้ม</span><span class="text-indigo-600">${totalGiven > 0 ? Math.round((totalRedeemed/totalGiven)*100) : 0}%</span></div></div></div>`;
             } else if (state.view === 'admin_qr') {
-                el.innerHTML = `<div class="space-y-8 animate-in pt-6">
-                    <div class="bg-white p-8 rounded-[3rem] shadow-2xl border text-center space-y-6">
-                        <div class="bg-indigo-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto text-indigo-600 shadow-inner ring-8 ring-indigo-50/50">
-                            <i data-lucide="qr-code" class="w-12 h-12"></i>
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">แต้มที่จะแจก (คูณ ${state.config.multiplier} เท่า)</label>
-                            <input id="admin-qr-pts" type="number" value="10" class="w-full text-5xl text-center font-black text-indigo-600 border-none bg-transparent outline-none focus:ring-0" />
-                        </div>
-                        <button onclick="generateQr(document.getElementById('admin-qr-pts').value)" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-2xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all">สร้างคิวอาร์</button>
-                    </div>
-
-                    ${state.activeQr ? `<div class="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-8 text-center space-y-8 animate-in">
-                        <h3 class="text-white text-3xl font-black">สแกนรับ ${state.activeQr.pts} แต้ม</h3>
-                        <div id="big-qr" class="p-6 bg-white rounded-[3rem] shadow-2xl"></div>
-                        <p class="text-white/40 text-[10px] break-all max-w-[250px] font-mono">${state.activeQr.url}</p>
-                        <button onclick="state.activeQr = null; updateUI();" class="bg-white/10 text-white px-8 py-3 rounded-full font-bold hover:bg-white/20 transition-all">ปิดหน้าจอนี้</button>
-                    </div>` : ''}
-                </div>`;
-                if (state.activeQr) {
-                    const container = document.getElementById("big-qr");
-                    if (container) {
-                        new QRCode(container, { text: state.activeQr.url, width: 280, height: 280, colorDark: "#4f46e5" });
-                    }
-                }
+                el.innerHTML = `<div class="space-y-8 animate-in pt-6"><div class="bg-white p-8 rounded-[3rem] shadow-2xl border text-center space-y-6"><div class="bg-indigo-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto text-indigo-600"><i data-lucide="qr-code" class="w-12 h-12"></i></div><div class="space-y-2"><label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">แต้มที่จะแจก (คูณ ${state.config.multiplier} เท่า)</label><input id="admin-qr-pts" type="number" value="10" class="w-full text-5xl text-center font-black text-indigo-600 bg-transparent outline-none focus:ring-0" /></div><button onclick="generateQr(document.getElementById('admin-qr-pts').value)" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-2xl shadow-indigo-100 transition-all">สร้างคิวอาร์</button></div>
+                ${state.activeQr ? `<div class="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-8 text-center space-y-8 animate-in"><h3 class="text-white text-3xl font-black">Scan รับ ${state.activeQr.pts} แต้ม</h3><div id="big-qr" class="p-6 bg-white rounded-[3rem]"></div><button onclick="state.activeQr = null; updateUI();" class="bg-white/10 text-white px-8 py-3 rounded-full font-bold">ปิดหน้าจอ</button></div>` : ''}</div>`;
+                if (state.activeQr) { const c = document.getElementById("big-qr"); if (c) new QRCode(c, { text: state.activeQr.url, width: 280, height: 280, colorDark: "#4f46e5" }); }
             } else if (state.view === 'admin_verify') {
-                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
-                    <h2 class="text-2xl font-black text-indigo-900">ยืนยันคูปองลูกค้า</h2>
-                    <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
-                        <input id="verify-code" placeholder="รหัสคูปอง" class="w-full p-4 rounded-2xl bg-gray-50 border-none text-center font-black text-3xl uppercase tracking-widest focus:ring-2 focus:ring-indigo-600 outline-none" />
-                        <button onclick="verifyCoupon(document.getElementById('verify-code').value)" class="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">ยืนยันการรับรางวัล</button>
-                    </div>
-
-                    <div class="space-y-4">
-                        <h4 class="font-bold text-gray-800 text-sm">ประวัติการใช้คูปองล่าสุด</h4>
-                        ${state.coupons.filter(c => c.status === 'used').slice(0, 5).map(c => `<div class="p-4 bg-gray-50 rounded-2xl flex justify-between items-center opacity-70">
-                            <div><p class="font-bold text-sm leading-tight">${c.rewardName}</p><p class="text-[10px] text-gray-400 mt-1 uppercase tracking-tighter">CODE: ${c.code}</p></div>
-                            <div class="text-green-600 bg-green-50 p-2 rounded-lg"><i data-lucide="check-circle" class="w-5 h-5"></i></div>
-                        </div>`).join('')}
-                    </div>
-                </div>`;
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">Verify Code</h2><div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4"><input id="verify-code" placeholder="ใส่รหัสคูปอง" class="w-full p-4 rounded-2xl bg-gray-50 border-none text-center font-black text-3xl uppercase tracking-widest outline-none" /><button onclick="verifyCoupon(document.getElementById('verify-code').value)" class="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black">ยืนยันคูปอง</button></div></div>`;
             } else if (state.view === 'admin_settings') {
-                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
-                    <h2 class="text-2xl font-black text-indigo-900">ตั้งค่าระบบ</h2>
-                    <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-6">
-                        <div class="space-y-2">
-                            <label class="text-xs font-bold text-gray-500 uppercase tracking-widest">ชื่อร้านค้า</label>
-                            <input id="s-name" value="${state.config.storeName}" class="w-full p-4 rounded-xl bg-gray-50 border-none font-bold outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-xs font-bold text-gray-500 uppercase tracking-widest">แต้มคูณ (Rule Engine)</label>
-                            <div class="flex items-center gap-3">
-                                ${[1, 2, 3].map(m => `<button onclick="saveRule(${m})" class="flex-1 py-4 rounded-xl border-2 transition-all font-black ${state.config.multiplier === m ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-gray-100 text-gray-400'}">X${m}</button>`).join('')}
-                            </div>
-                        </div>
-                        <div class="space-y-2">
-                            <label class="text-xs font-bold text-gray-500 uppercase tracking-widest">สาขาที่เปิดให้บริการ</label>
-                            <div class="flex flex-wrap gap-2">
-                                ${state.config.branches.map(b => `<span class="bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-full text-xs font-bold border border-indigo-100">${b}</span>`).join('')}
-                            </div>
-                        </div>
-                        <button onclick="saveConfig()" class="w-full bg-gray-900 text-white py-5 rounded-2xl font-black shadow-lg">บันทึกการตั้งค่าทั้งหมด</button>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
-                        <h4 class="font-bold text-gray-800 text-sm">จัดการของรางวัล</h4>
-                        <button onclick="addRewardPrompt()" class="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่มของรางวัล</button>
-                        <div class="space-y-2">
-                            ${state.rewards.map(r => `<div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl"><span class="text-xs font-bold">${r.name}</span><span class="text-[10px] font-black text-indigo-600">${r.points} pts</span></div>`).join('')}
-                        </div>
-                    </div>
-                </div>`;
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">ตั้งค่า</h2><div class="bg-white p-6 rounded-3xl border shadow-sm space-y-6"><div><label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">ชื่อร้าน</label><input id="s-name" value="${state.config.storeName}" class="w-full p-4 rounded-xl bg-gray-50 border-none font-bold outline-none" /></div><div class="space-y-2"><label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">แต้มคูณ (Rule Engine)</label><div class="flex items-center gap-3">${[1, 2, 3].map(m => `<button onclick="saveRule(${m})" class="flex-1 py-4 rounded-xl border-2 transition-all font-black ${state.config.multiplier === m ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-gray-100 text-gray-400'}">X${m}</button>`).join('')}</div></div><button onclick="window.saveConfig()" class="w-full bg-gray-900 text-white py-5 rounded-2xl font-black">บันทึก</button></div><div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4"><h4 class="font-bold text-sm">Reward Manager</h4><button onclick="addRewardPrompt()" class="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl text-xs font-bold flex items-center justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่มของรางวัล</button></div></div>`;
             }
-        };
-
-        window.saveRule = (m) => { state.config.multiplier = m; saveConfig(); };
-        window.saveConfig = async () => {
-            const name = document.getElementById('s-name')?.value || state.config.storeName;
-            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config');
-            try {
-                await setDoc(ref, { ...state.config, storeName: name });
-                msg("บันทึกการตั้งค่าสำเร็จ");
-            } catch (e) { msg("ผิดพลาด", "error"); }
-        };
-
-        window.addRewardPrompt = async () => {
-            const name = prompt("ชื่อของรางวัล:");
-            const pts = prompt("ใช้กี่แต้ม:");
-            if (!name || !pts || isNaN(pts)) return msg("ข้อมูลไม่ครบ", "error");
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'rewards'), { 
-                name, points: parseInt(pts), description: "แลกรับของรางวัลได้ที่ร้าน" 
-            });
-            msg("เพิ่มของรางวัลสำเร็จ");
         };
 
         const renderBottomNav = (el) => {
-            if (state.role === 'customer') {
-                el.innerHTML = `
-                    <button onclick="switchView('dashboard')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'dashboard' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="home" class="w-5 h-5"></i><span class="text-[9px] font-bold">Home</span>
-                    </button>
-                    <button onclick="switchView('rewards')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'rewards' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="gift" class="w-5 h-5"></i><span class="text-[9px] font-bold">Redeem</span>
-                    </button>
-                    <button onclick="switchView('coupons')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'coupons' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="ticket" class="w-5 h-5"></i><span class="text-[9px] font-bold">Coupon</span>
-                    </button>
-                    <button onclick="switchView('history')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'history' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="history" class="w-5 h-5"></i><span class="text-[9px] font-bold">Logs</span>
-                    </button>
-                `;
-            } else {
-                el.innerHTML = `
-                    <button onclick="switchView('admin_report')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_report' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="bar-chart-3" class="w-5 h-5"></i><span class="text-[9px] font-bold">Report</span>
-                    </button>
-                    <button onclick="switchView('admin_qr')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_qr' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="qr-code" class="w-5 h-5"></i><span class="text-[9px] font-bold">Give</span>
-                    </button>
-                    <button onclick="switchView('admin_verify')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_verify' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="check-square" class="w-5 h-5"></i><span class="text-[9px] font-bold">Verify</span>
-                    </button>
-                    <button onclick="switchView('admin_settings')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_settings' ? 'text-indigo-600' : 'text-gray-400'}">
-                        <i data-lucide="sliders" class="w-5 h-5"></i><span class="text-[9px] font-bold">Setup</span>
-                    </button>
-                `;
-            }
+            const views = state.role === 'customer' 
+                ? [['dashboard','home','Home'], ['rewards','gift','Gift'], ['coupons','ticket','Ticket'], ['history','history','Logs']]
+                : [['admin_report','bar-chart-3','Report'], ['admin_qr','qr-code','Give'], ['admin_verify','check-square','Verify'], ['admin_settings','sliders','Setup']];
+            
+            el.innerHTML = views.map(v => `
+                <button onclick="switchView('${v[0]}')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === v[0] ? 'text-indigo-600' : 'text-gray-400'}">
+                    <i data-lucide="${v[1]}" class="w-5 h-5"></i><span class="text-[9px] font-bold">${v[2]}</span>
+                </button>
+            `).join('');
         };
 
-        // --- Init Listeners ---
-        onAuthStateChanged(auth, async (u) => {
-            if (!u) {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-                else await signInAnonymously(auth);
-                return;
-            }
-            state.user = u;
-            const loader = document.getElementById('loading-screen');
-            if (loader) loader.classList.add('hidden');
+        // --- Data Persistence Listeners ---
+        const startListeners = (u) => {
+            const configRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'settings', 'app_config');
+            onSnapshot(configRef, (d) => { if (d.exists()) state.config = d.data(); updateUI(); }, (e) => console.warn(e));
+
+            const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', u.uid);
+            onSnapshot(userRef, (d) => { if (d.exists()) state.userData = d.data(); updateUI(); }, (e) => console.warn(e));
+
+            onSnapshot(collection(db, 'artifacts', finalAppId, 'public', 'data', 'rewards'), (s) => { state.rewards = s.docs.map(d => ({id: d.id, ...d.data()})); updateUI(); });
+            onSnapshot(collection(db, 'artifacts', finalAppId, 'public', 'data', 'users'), (s) => { state.allCustomers = s.docs.map(d => d.data()); updateUI(); });
             
-            // Listeners
-            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config'), (d) => { if (d.exists()) state.config = d.data(); updateUI(); });
-            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.uid), (d) => { if (d.exists()) state.userData = d.data(); updateUI(); });
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'rewards'), (s) => { state.rewards = s.docs.map(d => ({id: d.id, ...d.data()})); updateUI(); });
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (s) => { state.allCustomers = s.docs.map(d => d.data()); updateUI(); });
-            
-            // Grouped listener for updates
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'coupons'), (s) => { 
+            onSnapshot(collection(db, 'artifacts', finalAppId, 'public', 'data', 'coupons'), (s) => { 
                 const all = s.docs.map(d => ({id: d.id, ...d.data()})); 
                 state.coupons = all.filter(c => c.userId === u.uid || state.role === 'admin').sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 updateUI(); 
             });
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), (s) => {
+
+            onSnapshot(collection(db, 'artifacts', finalAppId, 'public', 'data', 'transactions'), (s) => {
                 const all = s.docs.map(d => d.data());
                 state.transactions = all.filter(t => t.userId === u.uid || state.role === 'admin').sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 updateUI();
             });
 
-            // One-time QR Handling
+            checkQrInUrl(u);
+        };
+
+        const checkQrInUrl = async (u) => {
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
             if (token) {
                 window.history.replaceState({}, document.title, window.location.pathname);
-                const tokenRef = doc(db, 'artifacts', appId, 'public', 'data', 'qr_tokens', token);
+                const tokenRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'qr_tokens', token);
                 const tokenDoc = await getDoc(tokenRef);
                 if (tokenDoc.exists() && tokenDoc.data().status === 'active') {
                     const pts = tokenDoc.data().points;
                     try {
                         await runTransaction(db, async (tx) => {
-                            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', u.uid);
-                            const userDoc = await tx.get(userRef);
-                            const current = userDoc.exists() ? (userDoc.data().points || 0) : 0;
-                            const total = userDoc.exists() ? (userDoc.data().totalPointsEarned || 0) : 0;
-                            
-                            tx.set(userRef, { 
-                                points: current + pts, 
-                                totalPointsEarned: total + pts 
-                            }, { merge: true });
-                            
+                            const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', u.uid);
+                            const uDoc = await tx.get(userRef);
+                            const cur = uDoc.exists() ? (uDoc.data().points || 0) : 0;
+                            const total = uDoc.exists() ? (uDoc.data().totalPointsEarned || 0) : 0;
+                            tx.set(userRef, { points: cur + pts, totalPointsEarned: total + pts }, { merge: true });
                             tx.update(tokenRef, { status: 'used', usedBy: u.uid, usedAt: serverTimestamp() });
-                            
-                            tx.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions')), {
-                                userId: u.uid, amount: pts, reason: 'รับแต้มจาก QR Code', type: 'earn', timestamp: serverTimestamp()
+                            tx.set(doc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'transactions')), {
+                                userId: u.uid, amount: pts, reason: 'Scan QR Code', type: 'earn', timestamp: serverTimestamp()
                             });
                         });
                         msg(`ได้รับ ${pts} แต้มแล้ว!`);
-                    } catch (e) { msg("เกิดข้อผิดพลาดในการรับแต้ม", "error"); }
-                } else {
-                    msg("คิวอาร์นี้ใช้ไม่ได้แล้ว", "error");
-                }
+                    } catch (e) { msg("เกิดข้อผิดพลาด", "error"); }
+                } else msg("คิวอาร์นี้ใช้ไม่ได้แล้ว", "error");
             }
+        };
+
+        // --- Auth & Init ---
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+            } catch (e) { console.error(e); }
+        };
+
+        initAuth();
+        onAuthStateChanged(auth, (u) => {
+            if (u) {
+                state.user = u;
+                document.getElementById('loading-screen').classList.add('hidden');
+                startListeners(u);
+            } else document.getElementById('loading-screen').classList.remove('hidden');
         });
+
     </script>
 </body>
 </html>
