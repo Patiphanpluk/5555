@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ultimate Loyalty System</title>
+    <title>Ultimate Loyalty System - Phone Auth</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.0/lucide.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -16,6 +16,8 @@
         .tier-gold { background: linear-gradient(135deg, #f1c40f, #e67e22); }
         .tier-platinum { background: linear-gradient(135deg, #a29bfe, #6c5ce7); }
         .hidden { display: none !important; }
+        /* สไตล์พิเศษสำหรับปุ่ม OTP */
+        .otp-input:focus { letter-spacing: 0.5rem; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -26,7 +28,7 @@
         <div id="loading-screen" class="fixed inset-0 bg-white z-[100] flex items-center justify-center max-w-md mx-auto">
             <div class="text-center space-y-4">
                 <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mx-auto"></div>
-                <p class="text-xs font-bold text-gray-400 animate-pulse uppercase tracking-widest">กำลังเชื่อมต่อฐานข้อมูล...</p>
+                <p class="text-xs font-bold text-gray-400 animate-pulse uppercase tracking-widest">กำลังตรวจสอบสถานะ...</p>
             </div>
         </div>
 
@@ -58,14 +60,17 @@
 
         <!-- การแจ้งเตือน -->
         <div id="notif" class="fixed top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-50 pointer-events-none"></div>
+
+        <!-- Recaptcha Container (Invisible) -->
+        <div id="recaptcha-container"></div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, RecaptchaVerifier, signInWithPhoneNumber, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, onSnapshot, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Firebase Configuration Integrated ---
+        // --- Firebase Configuration ---
         const userProvidedConfig = {
             apiKey: "AIzaSyDadMZYr6lioUdc894l7PZzt6dxs8Ep_gw",
             authDomain: "test-318d9.firebaseapp.com",
@@ -79,7 +84,6 @@
         let firebaseConfig;
         let finalAppId;
 
-        // Priority check: Environment config > User provided config
         if (typeof __firebase_config !== 'undefined' && __firebase_config) {
             firebaseConfig = JSON.parse(__firebase_config);
             finalAppId = typeof __app_id !== 'undefined' ? __app_id : 'loyalty-portable';
@@ -103,7 +107,9 @@
             transactions: [],
             allCustomers: [],
             coupons: [],
-            activeQr: null
+            activeQr: null,
+            confirmationResult: null, // For Phone Auth
+            tempPhone: ''
         };
 
         const refreshIcons = () => {
@@ -134,24 +140,81 @@
         window.switchRole = (r) => { state.role = r; state.view = r === 'admin' ? 'admin_report' : 'dashboard'; updateUI(); };
         window.switchView = (v) => { state.view = v; updateUI(); };
 
-        window.handleLogin = async () => {
-            if (!state.user) return msg("กำลังเชื่อมต่อ...", "error");
-            const phone = document.getElementById('login-phone').value;
-            const name = document.getElementById('login-name').value;
-            if (!phone || phone.length < 10) return msg("กรุณาใส่เบอร์โทรให้ถูกต้อง", "error");
+        // --- Phone Auth Logic ---
 
-            const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', state.user.uid);
-            await setDoc(userRef, { 
-                uid: state.user.uid, 
-                phone, 
-                name: name || 'ลูกค้าใหม่', 
-                points: 0, 
-                totalPointsEarned: 0,
-                role: 'customer',
-                createdAt: serverTimestamp() 
-            }, { merge: true });
-            msg("เข้าสู่ระบบสำเร็จ!");
+        window.initRecaptcha = () => {
+            if (!window.recaptchaVerifier) {
+                window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+                    'size': 'invisible',
+                    'callback': (response) => {
+                        console.log("reCAPTCHA solved");
+                    }
+                });
+            }
         };
+
+        window.handleRequestOtp = async () => {
+            const phone = document.getElementById('login-phone').value;
+            if (!phone || phone.length < 10) return msg("กรุณาใส่เบอร์โทรให้ถูกต้อง (เช่น 0812345678)", "error");
+            
+            // ปรับฟอร์แมตเบอร์โทรเป็น +66
+            let formattedPhone = phone;
+            if (phone.startsWith('0')) {
+                formattedPhone = '+66' + phone.substring(1);
+            }
+
+            try {
+                window.initRecaptcha();
+                const appVerifier = window.recaptchaVerifier;
+                state.tempPhone = phone;
+                state.confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+                msg("ส่งรหัส OTP เรียบร้อยแล้ว");
+                updateUI();
+            } catch (error) {
+                console.error(error);
+                msg("ไม่สามารถส่งรหัสได้: " + error.message, "error");
+                if (window.recaptchaVerifier) window.recaptchaVerifier.clear();
+            }
+        };
+
+        window.handleVerifyOtp = async () => {
+            const code = document.getElementById('login-otp').value;
+            const name = document.getElementById('login-name').value;
+            if (!code || code.length !== 6) return msg("กรุณาใส่รหัส OTP 6 หลัก", "error");
+
+            try {
+                const result = await state.confirmationResult.confirm(code);
+                const user = result.user;
+                
+                // ตรวจสอบข้อมูลใน Firestore
+                const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', user.uid);
+                const userSnap = await getDoc(userRef);
+                
+                if (!userSnap.exists()) {
+                    await setDoc(userRef, { 
+                        uid: user.uid, 
+                        phone: state.tempPhone, 
+                        name: name || 'ลูกค้าใหม่', 
+                        points: 0, 
+                        totalPointsEarned: 0,
+                        role: 'customer',
+                        createdAt: serverTimestamp() 
+                    });
+                }
+                msg("เข้าสู่ระบบสำเร็จ!");
+                state.confirmationResult = null;
+            } catch (error) {
+                msg("รหัส OTP ไม่ถูกต้อง", "error");
+            }
+        };
+
+        window.handleLogout = async () => {
+            await signOut(auth);
+            state.userData = null;
+            location.reload();
+        };
+
+        // --- Admin & Loyalty Functions ---
 
         window.generateQr = async (pts) => {
             if (!pts) return msg("ระบุคะแนน", "error");
@@ -240,15 +303,33 @@
         };
 
         const renderLogin = (el) => {
-            el.innerHTML = `<div class="flex flex-col items-center justify-center min-h-[70vh] space-y-8 animate-in text-center p-6">
-                <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-2xl scale-125 mb-4"><i data-lucide="award" class="w-12 h-12"></i></div>
-                <div class="space-y-2"><h2 class="text-3xl font-black text-indigo-900">Member System</h2><p class="text-gray-400 font-medium tracking-tight">กรุณากรอกข้อมูลเพื่อสะสมแต้ม</p></div>
-                <div class="w-full space-y-4">
-                    <input id="login-phone" type="tel" placeholder="เบอร์โทรศัพท์" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-bold text-center text-lg" />
-                    <input id="login-name" type="text" placeholder="ชื่อเล่น" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-bold text-center text-lg" />
-                    <button onclick="handleLogin()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-100 active:scale-95 transition-all">เริ่มต้นใช้งาน</button>
-                </div>
-            </div>`;
+            if (!state.confirmationResult) {
+                el.innerHTML = `<div class="flex flex-col items-center justify-center min-h-[70vh] space-y-8 animate-in text-center p-6">
+                    <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-2xl scale-125 mb-4"><i data-lucide="smartphone" class="w-12 h-12"></i></div>
+                    <div class="space-y-2">
+                        <h2 class="text-3xl font-black text-indigo-900">Member System</h2>
+                        <p class="text-gray-400 font-medium tracking-tight">เข้าสู่ระบบด้วยเบอร์โทรศัพท์</p>
+                    </div>
+                    <div class="w-full space-y-4">
+                        <input id="login-phone" type="tel" placeholder="08XXXXXXXX" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-bold text-center text-lg" />
+                        <input id="login-name" type="text" placeholder="ชื่อ (สำหรับลูกค้าใหม่)" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-bold text-center text-lg" />
+                        <button onclick="handleRequestOtp()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-100 active:scale-95 transition-all">ส่งรหัส OTP</button>
+                    </div>
+                </div>`;
+            } else {
+                el.innerHTML = `<div class="flex flex-col items-center justify-center min-h-[70vh] space-y-8 animate-in text-center p-6">
+                    <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-2xl scale-125 mb-4"><i data-lucide="shield-check" class="w-12 h-12"></i></div>
+                    <div class="space-y-2">
+                        <h2 class="text-3xl font-black text-indigo-900">ยืนยันรหัส</h2>
+                        <p class="text-gray-400 font-medium tracking-tight">กรอกรหัส 6 หลักที่ส่งไปยัง ${state.tempPhone}</p>
+                    </div>
+                    <div class="w-full space-y-4">
+                        <input id="login-otp" type="number" placeholder="XXXXXX" class="w-full p-4 rounded-2xl bg-gray-100 border-none outline-none font-black text-center text-2xl tracking-[1rem] otp-input" maxlength="6" />
+                        <button onclick="handleVerifyOtp()" class="w-full bg-green-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-green-100 active:scale-95 transition-all">ยืนยันและเข้าสู่ระบบ</button>
+                        <button onclick="state.confirmationResult = null; updateUI();" class="text-indigo-600 font-bold text-sm">เปลี่ยนเบอร์โทรศัพท์</button>
+                    </div>
+                </div>`;
+            }
         };
 
         const renderCustomerView = (el) => {
@@ -277,6 +358,7 @@
                             <div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('th-TH') : '...'}</p></div>
                         </div><div class="font-black text-lg ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div>
                     </div>`).join('')}</div>
+                    <button onclick="handleLogout()" class="w-full text-gray-400 text-xs py-4">ออกจากระบบเบอร์ ${state.userData?.phone}</button>
                 </div>`;
             } else if (state.view === 'rewards') {
                 el.innerHTML = `<div class="space-y-6 animate-in pb-10"><h2 class="text-2xl font-black text-indigo-900">ของรางวัล</h2><div class="grid grid-cols-1 gap-4">
@@ -373,21 +455,17 @@
             }
         };
 
-        // --- Auth & Init ---
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-                else await signInAnonymously(auth);
-            } catch (e) { console.error(e); }
-        };
-
-        initAuth();
+        // --- Auth Init ---
         onAuthStateChanged(auth, (u) => {
             if (u) {
                 state.user = u;
                 document.getElementById('loading-screen').classList.add('hidden');
                 startListeners(u);
-            } else document.getElementById('loading-screen').classList.remove('hidden');
+            } else {
+                state.user = null;
+                document.getElementById('loading-screen').classList.add('hidden');
+                updateUI();
+            }
         });
 
     </script>
