@@ -1,734 +1,582 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, collection, doc, setDoc, getDoc, 
-  onSnapshot, updateDoc, addDoc, query, orderBy, 
-  serverTimestamp, runTransaction 
-} from 'firebase/firestore';
-import { 
-  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken 
-} from 'firebase/auth';
-import { 
-  User, Settings, Gift, History, Plus, Minus, 
-  Search, Save, LogOut, ChevronRight, Star, 
-  TrendingUp, CreditCard, ShoppingBag, ShieldCheck,
-  AlertCircle, CheckCircle2, X
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Loyalty System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.0/lucide.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Kanit', sans-serif; }
+        .animate-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .tier-silver { background: linear-gradient(135deg, #bdc3c7, #2c3e50); }
+        .tier-gold { background: linear-gradient(135deg, #f1c40f, #e67e22); }
+        .tier-platinum { background: linear-gradient(135deg, #a29bfe, #6c5ce7); }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
 
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'loyalty-system-v1';
+    <div id="app" class="min-h-screen flex flex-col max-w-md mx-auto bg-white shadow-2xl overflow-x-hidden relative">
+        <!-- Loading -->
+        <div id="loading-screen" class="fixed inset-0 bg-white z-50 flex items-center justify-center max-w-md mx-auto">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+        </div>
 
-// --- UI Components ---
+        <!-- Navbar -->
+        <nav id="nav-bar" class="hidden bg-white border-b border-gray-100 sticky top-0 z-30 px-4 py-3 flex justify-between items-center shadow-sm">
+            <div class="flex items-center gap-2">
+                <div class="bg-indigo-600 p-1.5 rounded-lg text-white">
+                    <i data-lucide="award" class="w-5 h-5"></i>
+                </div>
+                <h1 id="nav-store-name" class="font-bold text-lg text-indigo-900 truncate max-w-[150px]">Store</h1>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="flex bg-gray-100 p-0.5 rounded-full scale-90">
+                    <button onclick="switchRole('customer')" id="role-cust" class="px-3 py-1 rounded-full text-[10px] font-bold transition-all">USER</button>
+                    <button onclick="switchRole('admin')" id="role-admin" class="px-3 py-1 rounded-full text-[10px] font-bold transition-all">ADMIN</button>
+                </div>
+            </div>
+        </nav>
 
-const Card = ({ children, className = "" }) => (
-  <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden ${className}`}>
-    {children}
-  </div>
-);
+        <!-- Main Content -->
+        <main id="main-content" class="flex-grow p-4 overflow-y-auto">
+            <!-- Content will be injected here -->
+        </main>
 
-const Button = ({ children, onClick, variant = 'primary', className = "", disabled = false }) => {
-  const variants = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700',
-    secondary: 'bg-gray-100 text-gray-700 hover:bg-gray-200',
-    danger: 'bg-red-500 text-white hover:bg-red-600',
-    outline: 'border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50',
-  };
-  return (
-    <button 
-      disabled={disabled}
-      onClick={onClick}
-      className={`px-4 py-2 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 ${variants[variant]} ${className}`}
-    >
-      {children}
-    </button>
-  );
-};
+        <!-- Bottom Nav -->
+        <div id="bottom-nav" class="hidden border-t bg-white p-2 flex justify-around items-center sticky bottom-0 z-30">
+            <!-- Buttons based on role -->
+        </div>
 
-const Notification = ({ message, type, onClose }) => {
-  if (!message) return null;
-  const bgColor = type === 'error' ? 'bg-red-50' : 'bg-green-50';
-  const textColor = type === 'error' ? 'text-red-800' : 'text-green-800';
-  const icon = type === 'error' ? <AlertCircle className="text-red-500" /> : <CheckCircle2 className="text-green-500" />;
-
-  return (
-    <div className={`fixed top-4 right-4 left-4 md:left-auto md:w-80 z-50 p-4 rounded-2xl shadow-lg border ${bgColor} ${textColor} flex items-center justify-between animate-in fade-in slide-in-from-top-4`}>
-      <div className="flex items-center gap-3">
-        {icon}
-        <span className="text-sm font-medium">{message}</span>
-      </div>
-      <button onClick={onClose} className="p-1 hover:bg-black/5 rounded-full">
-        <X size={16} />
-      </button>
+        <!-- Notifications -->
+        <div id="notif" class="fixed top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-50 pointer-events-none"></div>
     </div>
-  );
-};
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [role, setRole] = useState('customer');
-  const [view, setView] = useState('dashboard');
-  const [userData, setUserData] = useState(null);
-  const [config, setConfig] = useState({ pointsPerBaht: 0.1, storeName: 'My Shop' });
-  const [rewards, setRewards] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [notification, setNotification] = useState(null);
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, onSnapshot, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  const showMsg = (message, type = 'success') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
-  };
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'loyalty-full-stack';
 
-  // --- Auth Logic (Follow Rule 3) ---
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Authentication failed:", err);
-      }
-    };
-    initAuth();
-    const unsubAuth = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) setLoading(false);
-    });
-    return () => unsubAuth();
-  }, []);
-
-  // --- Firestore Listeners (Ensuring Valid Paths - Rule 1) ---
-  useEffect(() => {
-    if (!user) return;
-
-    // RULE 1: Even segments for documents, Odd for collections
-    // config path: artifacts/appId/public/data/settings/config (6 segments)
-    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config');
-    const rewardsRef = collection(db, 'artifacts', appId, 'public', 'data', 'rewards');
-    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
-
-    const unsubConfig = onSnapshot(configRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setConfig(docSnap.data());
-      } else {
-        setDoc(configRef, { pointsPerBaht: 0.1, storeName: 'My Shop' });
-      }
-    }, (err) => console.error("Config fetch error:", err));
-
-    const unsubRewards = onSnapshot(rewardsRef, (snapshot) => {
-      setRewards(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error("Rewards fetch error:", err));
-
-    const unsubUser = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setUserData(docSnap.data());
-      } else {
-        const newUser = {
-          uid: user.uid,
-          phone: '',
-          name: 'Customer',
-          points: 0,
-          role: 'customer',
-          createdAt: serverTimestamp()
+        // --- Global State ---
+        let state = {
+            user: null,
+            role: 'customer',
+            view: 'dashboard',
+            userData: null,
+            config: { storeName: 'My Loyalty Shop', rate: 0.1, multiplier: 1, branches: ['Siam', 'Sukhumvit'] },
+            rewards: [],
+            transactions: [],
+            allCustomers: [],
+            coupons: [],
+            activeQr: null
         };
-        setDoc(userRef, newUser);
-        setUserData(newUser);
-      }
-      setLoading(false);
-    }, (err) => console.error("User data fetch error:", err));
 
-    // Admin/Transactions Listeners
-    const transRef = collection(db, 'artifacts', appId, 'public', 'data', 'transactions');
-    const unsubTrans = onSnapshot(transRef, (snap) => {
-      const allTrans = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const sorted = allTrans.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-      
-      if (role === 'admin') {
-        setTransactions(sorted);
-      } else {
-        setTransactions(sorted.filter(t => t.userId === user.uid));
-      }
-    }, (err) => console.error("Transactions fetch error:", err));
+        // --- Helper: Refresh Icons safely ---
+        const refreshIcons = () => {
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                window.lucide.createIcons();
+            }
+        };
 
-    let unsubCustomers = () => {};
-    if (role === 'admin') {
-      const customersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-      unsubCustomers = onSnapshot(customersRef, (snap) => {
-        setCustomers(snap.docs.map(d => d.data()));
-      }, (err) => console.error("Customers fetch error:", err));
-    }
+        // --- Tier Calculation ---
+        const getTier = (pts) => {
+            if (pts >= 5000) return { name: 'Platinum', class: 'tier-platinum', icon: 'zap' };
+            if (pts >= 1000) return { name: 'Gold', class: 'tier-gold', icon: 'star' };
+            return { name: 'Silver', class: 'tier-silver', icon: 'shield' };
+        };
 
-    return () => {
-      unsubConfig();
-      unsubRewards();
-      unsubUser();
-      unsubTrans();
-      unsubCustomers();
-    };
-  }, [user, role]);
+        // --- View Handlers ---
+        window.switchRole = (r) => { state.role = r; state.view = r === 'admin' ? 'admin_report' : 'dashboard'; updateUI(); };
+        window.switchView = (v) => { state.view = v; updateUI(); };
 
-  // --- Handlers ---
+        const msg = (text, type = 'success') => {
+            const container = document.getElementById('notif');
+            if (!container) return;
+            const id = 'm' + Date.now();
+            const color = type === 'error' ? 'bg-red-600' : 'bg-indigo-600';
+            container.innerHTML += `<div id="${id}" class="${color} text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 mb-2 animate-in text-sm font-medium">
+                <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle'}" class="w-4 h-4"></i> ${text}
+            </div>`;
+            refreshIcons();
+            setTimeout(() => document.getElementById(id)?.remove(), 3000);
+        };
 
-  const handleUpdateConfig = async (newConfig) => {
-    try {
-      const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config');
-      await updateDoc(configRef, newConfig);
-      showMsg("บันทึกการตั้งค่าสำเร็จ");
-    } catch (err) {
-      showMsg("ไม่สามารถบันทึกการตั้งค่าได้", "error");
-    }
-  };
-
-  const handleAdjustPoints = async (targetUserId, amount, reason) => {
-    if (!user) return;
-    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', targetUserId);
-    const transRef = collection(db, 'artifacts', appId, 'public', 'data', 'transactions');
-
-    try {
-      await runTransaction(db, async (transaction) => {
-        const userDoc = await transaction.get(userRef);
-        if (!userDoc.exists()) throw new Error("ไม่พบข้อมูลลูกค้า");
+        // --- Data Logic ---
         
-        const currentPoints = userDoc.data().points || 0;
-        const newPoints = currentPoints + amount;
-        
-        if (newPoints < 0) throw new Error("คะแนนไม่เพียงพอ");
+        window.handleLogin = async () => {
+            const phone = document.getElementById('login-phone').value;
+            const name = document.getElementById('login-name').value;
+            if (!phone || phone.length < 10) return msg("กรุณาใส่เบอร์โทรให้ถูกต้อง", "error");
 
-        transaction.update(userRef, { points: newPoints });
-        
-        const newTransDoc = doc(transRef);
-        transaction.set(newTransDoc, {
-          userId: targetUserId,
-          amount,
-          reason,
-          timestamp: serverTimestamp(),
-          type: amount > 0 ? 'earn' : 'redeem'
+            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', state.user.uid);
+            await setDoc(userRef, { 
+                uid: state.user.uid, 
+                phone, 
+                name: name || 'ลูกค้าใหม่', 
+                points: 0, 
+                totalPointsEarned: 0,
+                role: 'customer',
+                createdAt: serverTimestamp() 
+            }, { merge: true });
+            msg("ลงทะเบียนสำเร็จ!");
+        };
+
+        window.redeemReward = async (rid) => {
+            const reward = state.rewards.find(r => r.id === rid);
+            if (!reward || state.userData.points < reward.points) return msg("คะแนนไม่พอ", "error");
+
+            try {
+                await runTransaction(db, async (tx) => {
+                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', state.user.uid);
+                    const userDoc = await tx.get(userRef);
+                    const currentPoints = userDoc.data().points;
+                    
+                    if (currentPoints < reward.points) throw new Error("คะแนนไม่พอ");
+
+                    tx.update(userRef, { points: currentPoints - reward.points });
+                    
+                    const couponRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'coupons'));
+                    tx.set(couponRef, {
+                        userId: state.user.uid,
+                        rewardName: reward.name,
+                        pointsUsed: reward.points,
+                        status: 'active',
+                        code: Math.random().toString(36).substring(7).toUpperCase(),
+                        timestamp: serverTimestamp()
+                    });
+
+                    const transRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'));
+                    tx.set(transRef, {
+                        userId: state.user.uid,
+                        amount: -reward.points,
+                        reason: `แลกรางวัล: ${reward.name}`,
+                        type: 'redeem',
+                        timestamp: serverTimestamp()
+                    });
+                });
+                msg("แลกสำเร็จ! ตรวจสอบที่หน้าคูปอง");
+                state.view = 'coupons';
+                updateUI();
+            } catch (e) { msg(e.message, "error"); }
+        };
+
+        window.generateQr = async (pts) => {
+            if (!pts) return msg("ระบุคะแนน", "error");
+            const finalPts = parseInt(pts) * state.config.multiplier;
+            try {
+                const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'qr_tokens'), {
+                    points: finalPts,
+                    status: 'active',
+                    createdAt: serverTimestamp()
+                });
+                const url = `${window.location.origin}${window.location.pathname}?token=${docRef.id}`;
+                state.activeQr = { url, pts: finalPts };
+                updateUI();
+            } catch (e) { msg("สร้าง QR ล้มเหลว", "error"); }
+        };
+
+        window.verifyCoupon = async (code) => {
+            if (!code) return;
+            const q = state.coupons.find(c => c.code === code.toUpperCase());
+            if (!q) return msg("ไม่พบรหัสคูปอง", "error");
+            if (q.status === 'used') return msg("คูปองนี้ถูกใช้ไปแล้ว", "error");
+
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'coupons', q.id), { 
+                    status: 'used', 
+                    verifiedAt: serverTimestamp() 
+                });
+                msg("ยืนยันคูปองสำเร็จ!");
+            } catch (e) { msg("เกิดข้อผิดพลาด", "error"); }
+        };
+
+        // --- UI Rendering ---
+
+        const updateUI = () => {
+            const main = document.getElementById('main-content');
+            const nav = document.getElementById('nav-bar');
+            const bNav = document.getElementById('bottom-nav');
+            if (!main || !nav || !bNav) return;
+            
+            if (!state.userData?.phone) {
+                renderLogin(main);
+                nav.classList.add('hidden');
+                bNav.classList.add('hidden');
+            } else {
+                nav.classList.remove('hidden');
+                bNav.classList.remove('hidden');
+                document.getElementById('nav-store-name').innerText = state.config.storeName;
+                document.getElementById('role-cust').className = state.role === 'customer' ? 'px-3 py-1 rounded-full text-[10px] font-bold transition-all bg-white shadow-sm text-indigo-600' : 'px-3 py-1 rounded-full text-[10px] font-bold transition-all text-gray-400';
+                document.getElementById('role-admin').className = state.role === 'admin' ? 'px-3 py-1 rounded-full text-[10px] font-bold transition-all bg-white shadow-sm text-indigo-600' : 'px-3 py-1 rounded-full text-[10px] font-bold transition-all text-gray-400';
+                
+                if (state.role === 'customer') renderCustomerView(main);
+                else renderAdminView(main);
+                
+                renderBottomNav(bNav);
+            }
+            refreshIcons();
+        };
+
+        const renderLogin = (el) => {
+            el.innerHTML = `<div class="flex flex-col items-center justify-center min-h-[80vh] space-y-8 animate-in text-center p-6">
+                <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-2xl scale-125 mb-4">
+                    <i data-lucide="award" class="w-12 h-12"></i>
+                </div>
+                <div class="space-y-2">
+                    <h2 class="text-3xl font-black text-indigo-900">ยินดีต้อนรับ</h2>
+                    <p class="text-gray-400 font-medium">เข้าสู่ระบบสะสมแต้มอัจฉริยะ</p>
+                </div>
+                <div class="w-full space-y-4">
+                    <input id="login-phone" type="tel" placeholder="เบอร์โทรศัพท์" class="w-full p-4 rounded-2xl bg-gray-100 border-none focus:ring-2 focus:ring-indigo-600 outline-none font-bold text-center text-lg shadow-inner" />
+                    <input id="login-name" type="text" placeholder="ชื่อเล่น (ไม่ระบุก็ได้)" class="w-full p-4 rounded-2xl bg-gray-100 border-none focus:ring-2 focus:ring-indigo-600 outline-none font-bold text-center text-lg shadow-inner" />
+                    <button onclick="handleLogin()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">เริ่มต้นใช้งาน</button>
+                </div>
+            </div>`;
+        };
+
+        const renderCustomerView = (el) => {
+            const tier = getTier(state.userData.totalPointsEarned || 0);
+            
+            if (state.view === 'dashboard') {
+                el.innerHTML = `<div class="space-y-6 animate-in">
+                    <div class="${tier.class} rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden">
+                        <div class="absolute -right-4 -top-4 opacity-10"><i data-lucide="${tier.icon}" style="width:160px;height:160px"></i></div>
+                        <div class="relative z-10 space-y-4">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-bold uppercase tracking-widest opacity-70">Member Status</p>
+                                    <h3 class="text-2xl font-black">${tier.name}</h3>
+                                </div>
+                                <div class="bg-white/20 p-2 rounded-xl backdrop-blur-md"><i data-lucide="${tier.icon}" class="w-5 h-5"></i></div>
+                            </div>
+                            <div>
+                                <h2 class="text-5xl font-black">${state.userData.points.toLocaleString()} <span class="text-sm font-bold opacity-60">Points</span></h2>
+                            </div>
+                            <div class="pt-2 border-t border-white/20 flex justify-between items-center text-xs font-bold">
+                                <span>${state.userData.name}</span>
+                                <span>${state.userData.phone}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="switchView('rewards')" class="bg-indigo-50 p-6 rounded-3xl flex flex-col items-center gap-2 group transition-all active:scale-95">
+                            <div class="bg-indigo-600 p-3 rounded-2xl text-white group-hover:rotate-12 transition-transform shadow-lg shadow-indigo-200"><i data-lucide="gift"></i></div>
+                            <span class="font-bold text-indigo-900">แลกรางวัล</span>
+                        </button>
+                        <button onclick="switchView('history')" class="bg-orange-50 p-6 rounded-3xl flex flex-col items-center gap-2 group transition-all active:scale-95">
+                            <div class="bg-orange-500 p-3 rounded-2xl text-white group-hover:-rotate-12 transition-transform shadow-lg shadow-orange-200"><i data-lucide="history"></i></div>
+                            <span class="font-bold text-orange-900">ประวัติ</span>
+                        </button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h4 class="font-black text-lg text-indigo-900 px-1">กิจกรรมล่าสุด</h4>
+                        ${state.transactions.slice(0, 3).map(t => `<div class="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 ${t.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} rounded-xl flex items-center justify-center">
+                                    <i data-lucide="${t.amount > 0 ? 'arrow-up-right' : 'arrow-down-right'}" class="w-5 h-5"></i>
+                                </div>
+                                <div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('th-TH') : '...'}</p></div>
+                            </div>
+                            <div class="font-black ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            } else if (state.view === 'rewards') {
+                el.innerHTML = `<div class="space-y-6 animate-in">
+                    <h2 class="text-2xl font-black text-indigo-900">รายการของรางวัล</h2>
+                    <div class="grid grid-cols-1 gap-4 pb-10">
+                        ${state.rewards.map(r => `<div class="bg-white border p-4 rounded-3xl flex gap-4 shadow-sm hover:shadow-md transition-shadow">
+                            <div class="w-20 h-20 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-200"><i data-lucide="package" class="w-10 h-10"></i></div>
+                            <div class="flex-grow flex flex-col justify-between">
+                                <div><h4 class="font-bold text-gray-800">${r.name}</h4><p class="text-xs text-gray-400">${r.description || ''}</p></div>
+                                <div class="flex justify-between items-end">
+                                    <span class="text-indigo-600 font-black">${r.points} <span class="text-[10px]">แต้ม</span></span>
+                                    <button onclick="redeemReward('${r.id}')" class="px-4 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold disabled:opacity-50 shadow-lg shadow-indigo-100" ${state.userData.points < r.points ? 'disabled' : ''}>แลกเลย</button>
+                                </div>
+                            </div>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            } else if (state.view === 'coupons') {
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
+                    <h2 class="text-2xl font-black text-indigo-900">คูปองของฉัน</h2>
+                    <div class="space-y-4">
+                        ${state.coupons.map(c => `<div class="bg-white border-2 border-dashed ${c.status === 'used' ? 'opacity-50 border-gray-200' : 'border-indigo-100'} p-6 rounded-3xl text-center space-y-4 relative overflow-hidden">
+                            ${c.status === 'used' ? '<div class="absolute inset-0 bg-white/60 z-10 flex items-center justify-center font-black text-red-600 text-2xl rotate-12">ใช้แล้ว</div>' : ''}
+                            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Reward Code</p>
+                            <h3 class="text-2xl font-black text-indigo-600 tracking-tighter">${c.code}</h3>
+                            <div class="bg-gray-50 p-4 rounded-2xl flex flex-col items-center">
+                                <div id="qr-${c.id}" class="mb-2 bg-white p-2 rounded-xl"></div>
+                                <p class="font-bold text-sm">${c.rewardName}</p>
+                            </div>
+                        </div>`).join('')}
+                        ${state.coupons.length === 0 ? '<p class="text-center py-20 text-gray-400">ยังไม่มีคูปอง</p>' : ''}
+                    </div>
+                </div>`;
+                state.coupons.forEach(c => {
+                    const container = document.getElementById(`qr-${c.id}`);
+                    if (container) {
+                        new QRCode(container, { text: c.code, width: 100, height: 100 });
+                    }
+                });
+            } else if (state.view === 'history') {
+                el.innerHTML = `<div class="space-y-4 animate-in pb-10">
+                    <h2 class="text-2xl font-black text-indigo-900">ประวัติการใช้งาน</h2>
+                    ${state.transactions.map(t => `<div class="bg-white border p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 ${t.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} rounded-xl flex items-center justify-center">
+                                <i data-lucide="${t.amount > 0 ? 'plus' : 'minus'}" class="w-4 h-4"></i>
+                            </div>
+                            <div><p class="font-bold text-sm leading-none">${t.reason}</p><p class="text-[10px] text-gray-400 mt-1">${t.timestamp?.toDate ? t.timestamp.toDate().toLocaleString('th-TH') : '...'}</p></div>
+                        </div>
+                        <div class="font-black text-lg ${t.amount > 0 ? 'text-green-600' : 'text-red-600'}">${t.amount > 0 ? '+' : ''}${t.amount}</div>
+                    </div>`).join('')}
+                </div>`;
+            }
+        };
+
+        const renderAdminView = (el) => {
+            if (state.view === 'admin_report') {
+                const totalGiven = state.transactions.filter(t => t.type === 'earn').reduce((sum, t) => sum + (t.amount || 0), 0);
+                const totalRedeemed = state.transactions.filter(t => t.type === 'redeem').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+                
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
+                    <h2 class="text-2xl font-black text-indigo-900">รายงานสรุป</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-indigo-600 p-6 rounded-3xl text-white shadow-xl shadow-indigo-100">
+                            <p class="text-[10px] font-bold opacity-70 uppercase">ลูกค้าทั้งหมด</p>
+                            <h3 class="text-3xl font-black">${state.allCustomers.length}</h3>
+                        </div>
+                        <div class="bg-white border p-6 rounded-3xl">
+                            <p class="text-[10px] font-bold text-gray-400 uppercase">แต้มที่แจกไป</p>
+                            <h3 class="text-3xl font-black text-indigo-600">${totalGiven.toLocaleString()}</h3>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white border p-6 rounded-3xl space-y-4">
+                        <h4 class="font-bold text-gray-800 text-sm">ประสิทธิภาพระบบ (หมุนเวียนแต้ม)</h4>
+                        <div class="w-full bg-gray-100 h-4 rounded-full overflow-hidden flex">
+                            <div class="bg-indigo-500 h-full" style="width: ${totalGiven > 0 ? Math.min(100, (totalRedeemed/totalGiven)*100) : 0}%"></div>
+                        </div>
+                        <div class="flex justify-between text-[10px] font-bold">
+                            <span class="text-gray-400">แลกคืน: ${totalRedeemed.toLocaleString()} แต้ม</span>
+                            <span class="text-indigo-600">${totalGiven > 0 ? Math.round((totalRedeemed/totalGiven)*100) : 0}% ของทั้งหมด</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h4 class="font-bold text-gray-800">ลูกค้ายอดสะสมสูงสุด</h4>
+                        ${state.allCustomers.sort((a,b) => (b.totalPointsEarned || 0) - (a.totalPointsEarned || 0)).slice(0, 5).map((c, i) => `<div class="flex items-center gap-4 p-3 border rounded-2xl bg-white shadow-sm">
+                            <div class="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 text-xs">${i+1}</div>
+                            <div class="flex-grow"><p class="font-bold text-sm">${c.name || 'Unknown'}</p><p class="text-[10px] text-gray-400">${c.phone}</p></div>
+                            <div class="text-right font-black text-indigo-600 text-sm">${(c.totalPointsEarned || 0).toLocaleString()} <span class="text-[8px] opacity-50 uppercase">pts</span></div>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            } else if (state.view === 'admin_qr') {
+                el.innerHTML = `<div class="space-y-8 animate-in pt-6">
+                    <div class="bg-white p-8 rounded-[3rem] shadow-2xl border text-center space-y-6">
+                        <div class="bg-indigo-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto text-indigo-600 shadow-inner ring-8 ring-indigo-50/50">
+                            <i data-lucide="qr-code" class="w-12 h-12"></i>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">แต้มที่จะแจก (คูณ ${state.config.multiplier} เท่า)</label>
+                            <input id="admin-qr-pts" type="number" value="10" class="w-full text-5xl text-center font-black text-indigo-600 border-none bg-transparent outline-none focus:ring-0" />
+                        </div>
+                        <button onclick="generateQr(document.getElementById('admin-qr-pts').value)" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-2xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all">สร้างคิวอาร์</button>
+                    </div>
+
+                    ${state.activeQr ? `<div class="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-8 text-center space-y-8 animate-in">
+                        <h3 class="text-white text-3xl font-black">สแกนรับ ${state.activeQr.pts} แต้ม</h3>
+                        <div id="big-qr" class="p-6 bg-white rounded-[3rem] shadow-2xl"></div>
+                        <p class="text-white/40 text-[10px] break-all max-w-[250px] font-mono">${state.activeQr.url}</p>
+                        <button onclick="state.activeQr = null; updateUI();" class="bg-white/10 text-white px-8 py-3 rounded-full font-bold hover:bg-white/20 transition-all">ปิดหน้าจอนี้</button>
+                    </div>` : ''}
+                </div>`;
+                if (state.activeQr) {
+                    const container = document.getElementById("big-qr");
+                    if (container) {
+                        new QRCode(container, { text: state.activeQr.url, width: 280, height: 280, colorDark: "#4f46e5" });
+                    }
+                }
+            } else if (state.view === 'admin_verify') {
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
+                    <h2 class="text-2xl font-black text-indigo-900">ยืนยันคูปองลูกค้า</h2>
+                    <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
+                        <input id="verify-code" placeholder="รหัสคูปอง" class="w-full p-4 rounded-2xl bg-gray-50 border-none text-center font-black text-3xl uppercase tracking-widest focus:ring-2 focus:ring-indigo-600 outline-none" />
+                        <button onclick="verifyCoupon(document.getElementById('verify-code').value)" class="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">ยืนยันการรับรางวัล</button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h4 class="font-bold text-gray-800 text-sm">ประวัติการใช้คูปองล่าสุด</h4>
+                        ${state.coupons.filter(c => c.status === 'used').slice(0, 5).map(c => `<div class="p-4 bg-gray-50 rounded-2xl flex justify-between items-center opacity-70">
+                            <div><p class="font-bold text-sm leading-tight">${c.rewardName}</p><p class="text-[10px] text-gray-400 mt-1 uppercase tracking-tighter">CODE: ${c.code}</p></div>
+                            <div class="text-green-600 bg-green-50 p-2 rounded-lg"><i data-lucide="check-circle" class="w-5 h-5"></i></div>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            } else if (state.view === 'admin_settings') {
+                el.innerHTML = `<div class="space-y-6 animate-in pb-10">
+                    <h2 class="text-2xl font-black text-indigo-900">ตั้งค่าระบบ</h2>
+                    <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-6">
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-gray-500 uppercase tracking-widest">ชื่อร้านค้า</label>
+                            <input id="s-name" value="${state.config.storeName}" class="w-full p-4 rounded-xl bg-gray-50 border-none font-bold outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-gray-500 uppercase tracking-widest">แต้มคูณ (Rule Engine)</label>
+                            <div class="flex items-center gap-3">
+                                ${[1, 2, 3].map(m => `<button onclick="saveRule(${m})" class="flex-1 py-4 rounded-xl border-2 transition-all font-black ${state.config.multiplier === m ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-gray-100 text-gray-400'}">X${m}</button>`).join('')}
+                            </div>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-gray-500 uppercase tracking-widest">สาขาที่เปิดให้บริการ</label>
+                            <div class="flex flex-wrap gap-2">
+                                ${state.config.branches.map(b => `<span class="bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-full text-xs font-bold border border-indigo-100">${b}</span>`).join('')}
+                            </div>
+                        </div>
+                        <button onclick="saveConfig()" class="w-full bg-gray-900 text-white py-5 rounded-2xl font-black shadow-lg">บันทึกการตั้งค่าทั้งหมด</button>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
+                        <h4 class="font-bold text-gray-800 text-sm">จัดการของรางวัล</h4>
+                        <button onclick="addRewardPrompt()" class="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่มของรางวัล</button>
+                        <div class="space-y-2">
+                            ${state.rewards.map(r => `<div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl"><span class="text-xs font-bold">${r.name}</span><span class="text-[10px] font-black text-indigo-600">${r.points} pts</span></div>`).join('')}
+                        </div>
+                    </div>
+                </div>`;
+            }
+        };
+
+        window.saveRule = (m) => { state.config.multiplier = m; saveConfig(); };
+        window.saveConfig = async () => {
+            const name = document.getElementById('s-name')?.value || state.config.storeName;
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config');
+            try {
+                await setDoc(ref, { ...state.config, storeName: name });
+                msg("บันทึกการตั้งค่าสำเร็จ");
+            } catch (e) { msg("ผิดพลาด", "error"); }
+        };
+
+        window.addRewardPrompt = async () => {
+            const name = prompt("ชื่อของรางวัล:");
+            const pts = prompt("ใช้กี่แต้ม:");
+            if (!name || !pts || isNaN(pts)) return msg("ข้อมูลไม่ครบ", "error");
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'rewards'), { 
+                name, points: parseInt(pts), description: "แลกรับของรางวัลได้ที่ร้าน" 
+            });
+            msg("เพิ่มของรางวัลสำเร็จ");
+        };
+
+        const renderBottomNav = (el) => {
+            if (state.role === 'customer') {
+                el.innerHTML = `
+                    <button onclick="switchView('dashboard')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'dashboard' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="home" class="w-5 h-5"></i><span class="text-[9px] font-bold">Home</span>
+                    </button>
+                    <button onclick="switchView('rewards')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'rewards' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="gift" class="w-5 h-5"></i><span class="text-[9px] font-bold">Redeem</span>
+                    </button>
+                    <button onclick="switchView('coupons')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'coupons' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="ticket" class="w-5 h-5"></i><span class="text-[9px] font-bold">Coupon</span>
+                    </button>
+                    <button onclick="switchView('history')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'history' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="history" class="w-5 h-5"></i><span class="text-[9px] font-bold">Logs</span>
+                    </button>
+                `;
+            } else {
+                el.innerHTML = `
+                    <button onclick="switchView('admin_report')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_report' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5"></i><span class="text-[9px] font-bold">Report</span>
+                    </button>
+                    <button onclick="switchView('admin_qr')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_qr' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="qr-code" class="w-5 h-5"></i><span class="text-[9px] font-bold">Give</span>
+                    </button>
+                    <button onclick="switchView('admin_verify')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_verify' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="check-square" class="w-5 h-5"></i><span class="text-[9px] font-bold">Verify</span>
+                    </button>
+                    <button onclick="switchView('admin_settings')" class="flex flex-col items-center gap-1 flex-1 py-1 ${state.view === 'admin_settings' ? 'text-indigo-600' : 'text-gray-400'}">
+                        <i data-lucide="sliders" class="w-5 h-5"></i><span class="text-[9px] font-bold">Setup</span>
+                    </button>
+                `;
+            }
+        };
+
+        // --- Init Listeners ---
+        onAuthStateChanged(auth, async (u) => {
+            if (!u) {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+                return;
+            }
+            state.user = u;
+            const loader = document.getElementById('loading-screen');
+            if (loader) loader.classList.add('hidden');
+            
+            // Listeners
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config'), (d) => { if (d.exists()) state.config = d.data(); updateUI(); });
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.uid), (d) => { if (d.exists()) state.userData = d.data(); updateUI(); });
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'rewards'), (s) => { state.rewards = s.docs.map(d => ({id: d.id, ...d.data()})); updateUI(); });
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (s) => { state.allCustomers = s.docs.map(d => d.data()); updateUI(); });
+            
+            // Grouped listener for updates
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'coupons'), (s) => { 
+                const all = s.docs.map(d => ({id: d.id, ...d.data()})); 
+                state.coupons = all.filter(c => c.userId === u.uid || state.role === 'admin').sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                updateUI(); 
+            });
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), (s) => {
+                const all = s.docs.map(d => d.data());
+                state.transactions = all.filter(t => t.userId === u.uid || state.role === 'admin').sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                updateUI();
+            });
+
+            // One-time QR Handling
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            if (token) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+                const tokenRef = doc(db, 'artifacts', appId, 'public', 'data', 'qr_tokens', token);
+                const tokenDoc = await getDoc(tokenRef);
+                if (tokenDoc.exists() && tokenDoc.data().status === 'active') {
+                    const pts = tokenDoc.data().points;
+                    try {
+                        await runTransaction(db, async (tx) => {
+                            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', u.uid);
+                            const userDoc = await tx.get(userRef);
+                            const current = userDoc.exists() ? (userDoc.data().points || 0) : 0;
+                            const total = userDoc.exists() ? (userDoc.data().totalPointsEarned || 0) : 0;
+                            
+                            tx.set(userRef, { 
+                                points: current + pts, 
+                                totalPointsEarned: total + pts 
+                            }, { merge: true });
+                            
+                            tx.update(tokenRef, { status: 'used', usedBy: u.uid, usedAt: serverTimestamp() });
+                            
+                            tx.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions')), {
+                                userId: u.uid, amount: pts, reason: 'รับแต้มจาก QR Code', type: 'earn', timestamp: serverTimestamp()
+                            });
+                        });
+                        msg(`ได้รับ ${pts} แต้มแล้ว!`);
+                    } catch (e) { msg("เกิดข้อผิดพลาดในการรับแต้ม", "error"); }
+                } else {
+                    msg("คิวอาร์นี้ใช้ไม่ได้แล้ว", "error");
+                }
+            }
         });
-      });
-      showMsg("ทำรายการสำเร็จ");
-    } catch (err) {
-      showMsg(err.message || "เกิดข้อผิดพลาดในการทำรายการ", "error");
-    }
-  };
-
-  const handleRedeem = async (reward) => {
-    if (!userData || userData.points < reward.points) {
-      return showMsg("คะแนนสะสมของคุณไม่เพียงพอ", "error");
-    }
-    await handleAdjustPoints(user.uid, -reward.points, `แลกรางวัล: ${reward.name}`);
-  };
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-20 md:pb-0">
-      <Notification 
-        message={notification?.message} 
-        type={notification?.type} 
-        onClose={() => setNotification(null)} 
-      />
-
-      {/* Top Navbar */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-30 px-4 py-3">
-        <div className="max-w-5xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-2 rounded-xl shadow-indigo-100 shadow-lg">
-              <Star className="text-white w-5 h-5 fill-current" />
-            </div>
-            <h1 className="font-bold text-xl tracking-tight text-indigo-900 truncate max-w-[120px] md:max-w-none">
-              {config.storeName}
-            </h1>
-          </div>
-          
-          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-full">
-            <button 
-              onClick={() => {setRole('customer'); setView('dashboard');}}
-              className={`px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-all ${role === 'customer' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'}`}
-            >
-              ลูกค้า
-            </button>
-            <button 
-              onClick={() => {setRole('admin'); setView('admin_users');}}
-              className={`px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-all ${role === 'admin' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'}`}
-            >
-              แอดมิน
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-5xl mx-auto p-4 md:p-6">
-        {role === 'customer' ? (
-          <CustomerView 
-            userData={userData} 
-            rewards={rewards} 
-            transactions={transactions} 
-            view={view} 
-            setView={setView} 
-            handleRedeem={handleRedeem}
-          />
-        ) : (
-          <AdminView 
-            config={config} 
-            updateConfig={handleUpdateConfig}
-            customers={customers}
-            rewards={rewards}
-            transactions={transactions}
-            adjustPoints={handleAdjustPoints}
-            view={view}
-            setView={setView}
-            appId={appId}
-          />
-        )}
-      </main>
-
-      {/* Mobile Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 md:hidden flex justify-around p-3 z-40">
-        {role === 'customer' ? (
-          <>
-            <NavIcon active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={<User size={20}/>} label="หน้าแรก" />
-            <NavIcon active={view === 'rewards'} onClick={() => setView('rewards')} icon={<Gift size={20}/>} label="แลกแต้ม" />
-            <NavIcon active={view === 'history'} onClick={() => setView('history')} icon={<History size={20}/>} label="ประวัติ" />
-          </>
-        ) : (
-          <>
-            <NavIcon active={view === 'admin_users'} onClick={() => setView('admin_users')} icon={<Search size={20}/>} label="จัดการ" />
-            <NavIcon active={view === 'admin_rewards'} onClick={() => setView('admin_rewards')} icon={<Gift size={20}/>} label="รางวัล" />
-            <NavIcon active={view === 'admin_history'} onClick={() => setView('admin_history')} icon={<History size={20}/>} label="ประวัติ" />
-            <NavIcon active={view === 'admin_settings'} onClick={() => setView('admin_settings')} icon={<Settings size={20}/>} label="ตั้งค่า" />
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function NavIcon({ active, icon, label, onClick }) {
-  return (
-    <button onClick={onClick} className={`flex flex-col items-center gap-1 ${active ? 'text-indigo-600' : 'text-gray-400'}`}>
-      {icon}
-      <span className="text-[10px] font-medium">{label}</span>
-    </button>
-  );
-}
-
-// --- Views ---
-
-function CustomerView({ userData, rewards, transactions, view, setView, handleRedeem }) {
-  const points = typeof userData?.points === 'number' ? userData.points : 0;
-
-  return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      {view === 'dashboard' && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Star size={120} />
-            </div>
-            <div className="relative z-10">
-              <p className="opacity-80 font-medium mb-1">คะแนนสะสมของคุณ</p>
-              <h2 className="text-5xl font-bold mb-6">{points.toLocaleString()} <span className="text-lg font-normal opacity-80">แต้ม</span></h2>
-              <Button onClick={() => setView('rewards')} variant="secondary" className="bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-md">
-                แลกของรางวัล
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Card className="p-4 flex flex-col items-center text-center gap-2">
-              <div className="bg-green-100 p-3 rounded-full text-green-600">
-                <TrendingUp size={24} />
-              </div>
-              <h3 className="font-bold text-gray-800">ระดับสมาชิก</h3>
-              <p className="text-sm text-gray-500">Silver Member</p>
-            </Card>
-            <Card className="p-4 flex flex-col items-center text-center gap-2">
-              <div className="bg-blue-100 p-3 rounded-full text-blue-600">
-                <ShoppingBag size={24} />
-              </div>
-              <h3 className="font-bold text-gray-800">การซื้อทั้งหมด</h3>
-              <p className="text-sm text-gray-500">{transactions.filter(t => t.type === 'earn').length} ครั้ง</p>
-            </Card>
-          </div>
-
-          <section>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg">รายการล่าสุด</h3>
-              <button onClick={() => setView('history')} className="text-indigo-600 text-sm font-medium flex items-center">
-                ดูทั้งหมด <ChevronRight size={16}/>
-              </button>
-            </div>
-            <div className="space-y-3">
-              {transactions.slice(0, 3).map((t) => (
-                <TransactionItem key={t.id} transaction={t} />
-              ))}
-              {transactions.length === 0 && <p className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">ยังไม่มีรายการสะสมแต้ม</p>}
-            </div>
-          </section>
-        </div>
-      )}
-
-      {view === 'rewards' && (
-        <div>
-          <h2 className="text-2xl font-bold mb-6">แลกของรางวัล</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {rewards.map((r) => (
-              <Card key={r.id} className="flex flex-col h-full border-0 shadow-md">
-                <div className="h-44 bg-indigo-50 relative flex items-center justify-center">
-                  <Gift size={64} className="text-indigo-200" />
-                  <div className="absolute top-4 right-4 bg-indigo-600 text-white px-4 py-1.5 rounded-full text-sm font-bold shadow-lg">
-                    {r.points} แต้ม
-                  </div>
-                </div>
-                <div className="p-5 flex-1 flex flex-col">
-                  <h3 className="font-bold text-xl mb-1">{r.name}</h3>
-                  <p className="text-sm text-gray-500 mb-6 flex-1">{r.description || 'ไม่มีคำอธิบายเพิ่มเติม'}</p>
-                  <Button 
-                    onClick={() => handleRedeem(r)}
-                    disabled={points < r.points}
-                    className="w-full py-3"
-                  >
-                    {points >= r.points ? 'แลกของรางวัล' : `ต้องการอีก ${r.points - points} แต้ม`}
-                  </Button>
-                </div>
-              </Card>
-            ))}
-            {rewards.length === 0 && (
-              <div className="col-span-full text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
-                <Gift className="mx-auto text-gray-300 mb-2" size={48}/>
-                <p className="text-gray-400">ขณะนี้ยังไม่มีของรางวัลเปิดให้แลก</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {view === 'history' && (
-        <div>
-          <h2 className="text-2xl font-bold mb-6">ประวัติคะแนน</h2>
-          <div className="space-y-3">
-            {transactions.map((t) => (
-              <TransactionItem key={t.id} transaction={t} />
-            ))}
-            {transactions.length === 0 && <p className="text-center py-20 text-gray-400">ยังไม่มีประวัติการใช้งาน</p>}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TransactionItem({ transaction }) {
-  const isEarn = transaction.type === 'earn';
-  const timestamp = transaction.timestamp?.toDate ? transaction.timestamp.toDate().toLocaleString('th-TH', { 
-    dateStyle: 'medium', timeStyle: 'short' 
-  }) : 'กำลังบันทึก...';
-
-  return (
-    <Card className="p-4 flex justify-between items-center border-0 shadow-sm">
-      <div className="flex items-center gap-4">
-        <div className={`p-3 rounded-2xl ${isEarn ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-          {isEarn ? <Plus size={20}/> : <Minus size={20}/>}
-        </div>
-        <div>
-          <p className="font-bold text-gray-800 leading-tight">{transaction.reason}</p>
-          <p className="text-xs text-gray-400 mt-1">{timestamp}</p>
-        </div>
-      </div>
-      <div className={`font-bold text-lg ${isEarn ? 'text-green-600' : 'text-red-600'}`}>
-        {isEarn ? '+' : ''}{(transaction.amount || 0).toLocaleString()}
-      </div>
-    </Card>
-  );
-}
-
-function AdminView({ config, updateConfig, customers, rewards, transactions, adjustPoints, view, setView, appId }) {
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  const filteredCustomers = customers.filter(c => 
-    (c.phone && c.phone.includes(searchTerm)) || 
-    (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-      {/* Sidebar Desktop */}
-      <aside className="hidden lg:block space-y-2">
-        <NavButton active={view === 'admin_users'} onClick={() => setView('admin_users')} icon={<User size={18}/>} label="จัดการสมาชิก" />
-        <NavButton active={view === 'admin_rewards'} onClick={() => setView('admin_rewards')} icon={<Gift size={18}/>} label="จัดการของรางวัล" />
-        <NavButton active={view === 'admin_history'} onClick={() => setView('admin_history')} icon={<History size={18}/>} label="ประวัติทั้งหมด" />
-        <NavButton active={view === 'admin_settings'} onClick={() => setView('admin_settings')} icon={<Settings size={18}/>} label="ตั้งค่าระบบ" />
-      </aside>
-
-      <div className="lg:col-span-3 space-y-6">
-        {view === 'admin_users' && (
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h2 className="text-2xl font-bold">จัดการสมาชิก</h2>
-              <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-600 transition-colors" size={18}/>
-                <input 
-                  type="text" 
-                  placeholder="ค้นหาชื่อ หรือ เบอร์โทร..."
-                  className="pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none w-full md:w-72 transition-all shadow-sm"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {filteredCustomers.map(cust => (
-                <CustomerAdminCard key={cust.uid} customer={cust} adjustPoints={adjustPoints} config={config} />
-              ))}
-              {filteredCustomers.length === 0 && (
-                <div className="text-center py-20 text-gray-400 bg-white rounded-3xl border border-dashed border-gray-200">
-                  <User className="mx-auto mb-3 opacity-20" size={48}/>
-                  <p>ไม่พบข้อมูลลูกค้า</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {view === 'admin_rewards' && (
-          <AdminRewardsManager rewards={rewards} appId={appId} />
-        )}
-
-        {view === 'admin_settings' && (
-          <div className="space-y-6 animate-in fade-in">
-            <h2 className="text-2xl font-bold">ตั้งค่าระบบ</h2>
-            <Card className="p-8 space-y-8 border-0 shadow-lg">
-              <div className="space-y-3">
-                <label className="text-sm font-bold text-gray-700">ชื่อร้านค้า</label>
-                <input 
-                  className="w-full p-4 rounded-xl bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
-                  value={config.storeName}
-                  onChange={(e) => setConfig({...config, storeName: e.target.value})}
-                />
-              </div>
-              <div className="space-y-3">
-                <label className="text-sm font-bold text-gray-700">อัตราการให้แต้ม (1 บาท = ? แต้ม)</label>
-                <div className="flex items-center gap-4">
-                  <input 
-                    type="number"
-                    step="0.01"
-                    className="flex-1 p-4 rounded-xl bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
-                    value={config.pointsPerBaht}
-                    onChange={(e) => setConfig({...config, pointsPerBaht: parseFloat(e.target.value)})}
-                  />
-                  <div className="text-sm text-gray-500 font-medium">
-                    = {Math.floor(100 * config.pointsPerBaht)} แต้ม ต่อ 100 บาท
-                  </div>
-                </div>
-              </div>
-              <Button onClick={() => updateConfig(config)} className="w-full py-4 flex items-center justify-center gap-2">
-                <Save size={20} /> บันทึกการตั้งค่า
-              </Button>
-            </Card>
-          </div>
-        )}
-
-        {view === 'admin_history' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold">ประวัติรายการทั้งหมด</h2>
-            <div className="space-y-3">
-              {transactions.map((t) => (
-                <TransactionItem key={t.id} transaction={t} />
-              ))}
-              {transactions.length === 0 && <p className="text-center py-20 text-gray-400">ไม่มีประวัติรายการ</p>}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function NavButton({ active, icon, label, onClick }) {
-  return (
-    <button 
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-5 py-3.5 rounded-2xl font-semibold transition-all ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 scale-[1.02]' : 'text-gray-500 hover:bg-white hover:text-indigo-600'}`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function CustomerAdminCard({ customer, adjustPoints, config }) {
-  const [val, setVal] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleAction = async (isAdd) => {
-    if (!val || isNaN(val)) return;
-    setIsSubmitting(true);
-    try {
-      if (isAdd) {
-        const pts = Math.floor(parseFloat(val) * config.pointsPerBaht);
-        await adjustPoints(customer.uid, pts, `แอดมินเติมแต้ม (ยอดซื้อ ${val} บาท)`);
-      } else {
-        await adjustPoints(customer.uid, -parseInt(val), `แอดมินลบแต้ม (${val} แต้ม)`);
-      }
-      setVal('');
-    } catch (e) {
-      // Error handled by adjustPoints notification
-    }
-    setIsSubmitting(false);
-  };
-
-  const points = typeof customer.points === 'number' ? customer.points : 0;
-
-  return (
-    <Card className="p-6 border-0 shadow-md">
-      <div className="flex flex-col md:flex-row justify-between md:items-center gap-6">
-        <div className="flex items-center gap-5">
-          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 ring-4 ring-indigo-50/50">
-            <User size={28}/>
-          </div>
-          <div>
-            <h4 className="font-bold text-xl text-gray-900">{customer.name || 'ลูกค้าทั่วไป'}</h4>
-            <div className="flex items-center gap-3 mt-1">
-              <span className="text-sm text-gray-500 flex items-center gap-1.5">
-                <CreditCard size={14}/> {customer.phone || 'ไม่ระบุเบอร์'}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-indigo-50 px-6 py-3 rounded-2xl text-center md:text-right border border-indigo-100">
-          <p className="text-[10px] text-indigo-400 uppercase tracking-widest font-black">คะแนนคงเหลือ</p>
-          <p className="text-3xl font-black text-indigo-700">{points.toLocaleString()}</p>
-        </div>
-      </div>
-
-      <div className="mt-8 pt-8 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="space-y-3">
-          <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">เติมแต้มตามยอดซื้อ (บาท)</label>
-          <div className="flex gap-2">
-            <input 
-              type="number" 
-              placeholder="จำนวนเงิน..."
-              className="flex-1 px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-              value={val}
-              onChange={(e) => setVal(e.target.value)}
-            />
-            <Button onClick={() => handleAction(true)} disabled={isSubmitting} className="px-6">
-              + เติมแต้ม
-            </Button>
-          </div>
-          <p className="text-[10px] text-gray-500 italic">คำนวณ: {val || 0} บาท = {Math.floor((val || 0) * config.pointsPerBaht)} แต้ม</p>
-        </div>
-
-        <div className="space-y-3">
-          <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">ลบแต้มด่วน (แต้ม)</label>
-          <div className="flex gap-2">
-            <input 
-              type="number" 
-              placeholder="จำนวนแต้ม..."
-              className="flex-1 px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-red-500 outline-none transition-all"
-              value={val}
-              onChange={(e) => setVal(e.target.value)}
-            />
-            <Button onClick={() => handleAction(false)} disabled={isSubmitting} variant="danger" className="px-6">
-              - หักแต้ม
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function AdminRewardsManager({ rewards, appId }) {
-  const [newReward, setNewReward] = useState({ name: '', points: '', description: '' });
-
-  const addReward = async () => {
-    if (!newReward.name || !newReward.points) return;
-    const rewardsRef = collection(db, 'artifacts', appId, 'public', 'data', 'rewards');
-    try {
-      await addDoc(rewardsRef, {
-        ...newReward,
-        points: parseInt(newReward.points),
-        createdAt: serverTimestamp()
-      });
-      setNewReward({ name: '', points: '', description: '' });
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  return (
-    <div className="space-y-8 animate-in fade-in">
-      <h2 className="text-2xl font-bold">จัดการของรางวัล</h2>
-      
-      <Card className="p-8 border-0 shadow-lg bg-white">
-        <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
-          <Plus className="text-indigo-600" size={20}/> เพิ่มของรางวัลใหม่
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-gray-400">ชื่อรางวัล</label>
-            <input 
-              placeholder="เช่น กาแฟฟรี 1 แก้ว" 
-              className="w-full p-4 rounded-xl bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={newReward.name}
-              onChange={(e) => setNewReward({...newReward, name: e.target.value})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-gray-400">แต้มที่ใช้</label>
-            <input 
-              type="number"
-              placeholder="เช่น 100" 
-              className="w-full p-4 rounded-xl bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={newReward.points}
-              onChange={(e) => setNewReward({...newReward, points: e.target.value})}
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-xs font-bold text-gray-400">รายละเอียดเพิ่มเติม</label>
-            <textarea 
-              placeholder="เงื่อนไขการแลก..." 
-              className="w-full p-4 rounded-xl bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
-              value={newReward.description}
-              onChange={(e) => setNewReward({...newReward, description: e.target.value})}
-            />
-          </div>
-          <Button onClick={addReward} className="md:col-span-2 py-4">สร้างรายการของรางวัล</Button>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {rewards.map(r => (
-          <Card key={r.id} className="p-5 flex justify-between items-center border-0 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="bg-indigo-50 p-3 rounded-xl text-indigo-600">
-                <Gift size={20} />
-              </div>
-              <div>
-                <p className="font-bold text-gray-800">{r.name}</p>
-                <p className="text-sm text-indigo-600 font-bold">{r.points} แต้ม</p>
-              </div>
-            </div>
-          </Card>
-        ))}
-        {rewards.length === 0 && (
-          <p className="col-span-full text-center py-10 text-gray-400">ยังไม่มีรายการของรางวัล</p>
-        )}
-      </div>
-    </div>
-  );
-}
+    </script>
+</body>
+</html>
