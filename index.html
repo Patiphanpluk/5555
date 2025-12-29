@@ -18,10 +18,15 @@
         .cursor-none { cursor: none; }
         .text-shadow-lg { text-shadow: 0 4px 12px rgba(0,0,0,0.8); }
         .glass-effect { background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); border-top: 1px solid rgba(255, 255, 255, 0.1); }
-        .admin-gradient { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); }
-        .progress-bar-fill { transition: width 0.3s ease-out; }
+        .progress-bar-fill { transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .animate-shake { animation: shake 0.4s ease-in-out; }
     </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
@@ -33,7 +38,7 @@
         // --- Firebase Modules ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
         import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 
         // --- Firebase Configuration ---
@@ -76,7 +81,7 @@
             const [formData, setFormData] = useState({ name: '', message: '' });
             const [selectedFile, setSelectedFile] = useState(null);
             const [previewUrl, setPreviewUrl] = useState('');
-            const [status, setStatus] = useState(null); // 'success', 'error', null
+            const [status, setStatus] = useState(null);
             const [errorMessage, setErrorMessage] = useState('');
             const [uploadProgress, setUploadProgress] = useState(0);
             const [uploading, setUploading] = useState(false);
@@ -91,21 +96,31 @@
                 setErrorMessage('');
 
                 try {
-                    const fileExt = selectedFile.name.split('.').pop();
-                    const fileName = `${user.uid}_${Date.now()}.${fileExt}`;
+                    const fileName = `${Date.now()}_${selectedFile.name.replace(/\s+/g, '_')}`;
                     const storagePath = `artifacts/${appId}/public/uploads/${fileName}`;
                     const storageRef = ref(storage, storagePath);
                     
-                    const uploadTask = uploadBytesResumable(storageRef, selectedFile);
+                    // Add metadata to help Firebase
+                    const metadata = {
+                        contentType: selectedFile.type
+                    };
+
+                    const uploadTask = uploadBytesResumable(storageRef, selectedFile, metadata);
 
                     uploadTask.on('state_changed', 
                         (snapshot) => {
                             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                            setUploadProgress(Math.max(1, Math.round(progress))); // Ensure at least 1% once started
+                            setUploadProgress(Math.floor(progress));
                         }, 
                         (error) => {
-                            console.error("Firebase Upload Error:", error);
-                            setErrorMessage(error.message || "การอัปโหลดขัดข้อง กรุณาตรวจสอบการตั้งค่า Firebase Storage");
+                            console.error("Firebase Upload Error Detail:", error);
+                            let msg = "การอัปโหลดขัดข้อง";
+                            if (error.code === 'storage/unauthorized') {
+                                msg = "ถูกปฏิเสธสิทธิ์ (ตรวจสอบ Rules ใน Storage Dashboard)";
+                            } else if (error.code === 'storage/canceled') {
+                                msg = "การอัปโหลดถูกยกเลิก";
+                            }
+                            setErrorMessage(msg);
                             setStatus('error');
                             setUploading(false);
                         }, 
@@ -114,7 +129,7 @@
                                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                                 
                                 await addDoc(collection(db, ...QUEUE_COLLECTION), {
-                                    name: formData.name || 'Anonymous',
+                                    name: formData.name || 'ผู้ร่วมงาน',
                                     message: formData.message || '',
                                     imageUrl: downloadURL,
                                     status: 'pending',
@@ -127,9 +142,10 @@
                                 setSelectedFile(null);
                                 setPreviewUrl('');
                                 setUploading(false);
+                                setTimeout(() => setStatus(null), 5000);
                             } catch (dbErr) {
                                 console.error("Database Error:", dbErr);
-                                setErrorMessage("บันทึกข้อมูลไม่สำเร็จ แต่รูปอัปโหลดแล้ว");
+                                setErrorMessage("รูปส่งสำเร็จแล้ว แต่บันทึกข้อมูลไม่สำเร็จ");
                                 setStatus('error');
                                 setUploading(false);
                             }
@@ -138,7 +154,7 @@
 
                 } catch (err) {
                     console.error("Initialization Error:", err);
-                    setErrorMessage("ไม่สามารถเริ่มการอัปโหลดได้");
+                    setErrorMessage("ไม่สามารถเริ่มการเชื่อมต่อได้");
                     setStatus('error');
                     setUploading(false);
                 }
@@ -178,12 +194,12 @@
                                             <div className="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 transition-all duration-500">
                                                 <div className="w-full max-w-[200px] bg-white/10 h-4 rounded-full overflow-hidden mb-4 border border-white/20">
                                                     <div 
-                                                        className="progress-bar-fill bg-gradient-to-r from-blue-500 to-cyan-400 h-full" 
+                                                        className="progress-bar-fill bg-gradient-to-r from-blue-500 to-cyan-400 h-full shadow-[0_0_10px_rgba(59,130,246,0.5)]" 
                                                         style={{ width: `${uploadProgress}%` }}
                                                     ></div>
                                                 </div>
-                                                <div className="text-4xl font-black text-white mb-2">{uploadProgress}%</div>
-                                                <p className="text-sm text-blue-300 font-bold animate-pulse tracking-widest uppercase">Uploading Photo...</p>
+                                                <div className="text-5xl font-black text-white mb-2">{uploadProgress}%</div>
+                                                <p className="text-sm text-blue-300 font-bold animate-pulse tracking-widest uppercase">Uploading...</p>
                                             </div>
                                         )}
                                     </div>
@@ -191,6 +207,7 @@
                                     <div className="text-center p-8 space-y-4">
                                         <div className="text-blue-400/50 mx-auto flex justify-center"><Icons.Upload /></div>
                                         <p className="text-sm opacity-40 font-bold uppercase tracking-widest">แตะเพื่อเลือกรูปภาพ</p>
+                                        <p className="text-[10px] opacity-20 uppercase tracking-tighter">Support up to 10MB</p>
                                     </div>
                                 )}
                                 <input disabled={uploading} type="file" accept="image/*" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
@@ -204,25 +221,31 @@
 
                         <div className="space-y-4">
                             <input disabled={uploading} required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50" placeholder="ชื่อเล่นของคุณ..." />
-                            <textarea disabled={uploading} value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50" placeholder="ข้อความฝากถึงคนในงาน (ถ้ามี)..." rows="3" />
+                            <textarea disabled={uploading} value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50" placeholder="ข้อความฝากถึงคนในงาน..." rows="3" />
                         </div>
 
                         <button disabled={uploading || !selectedFile} className={`w-full py-5 rounded-3xl font-black text-xl flex items-center justify-center gap-3 shadow-2xl transition-all active:scale-95 ${uploading || !selectedFile ? 'bg-slate-800 text-white/30' : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-500/20'}`}>
-                            {uploading ? `กำลังอัปโหลด... ${uploadProgress}%` : <><Icons.Upload /> ส่งขึ้นจอทันที</>}
+                            {uploading ? `กำลังส่ง... ${uploadProgress}%` : <><Icons.Upload /> ส่งขึ้นจอทันที</>}
                         </button>
 
                         {status === 'success' && (
-                            <div className="bg-green-500/10 border border-green-500/30 text-green-400 p-5 rounded-2xl text-center animate-in fade-in zoom-in duration-300">
+                            <div className="bg-green-500/10 border border-green-500/30 text-green-400 p-5 rounded-2xl text-center animate-in fade-in zoom-in duration-300 shadow-xl shadow-green-500/10">
                                 <p className="font-bold text-xl mb-1">ส่งเรียบร้อยแล้ว! 🚀</p>
                                 <p className="text-xs opacity-70">รอแอดมินอนุมัติเพื่อขึ้นหน้าจอนะครับ</p>
                             </div>
                         )}
                         {status === 'error' && (
-                            <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-5 rounded-2xl text-center animate-in shake duration-500">
-                                <p className="font-bold text-xl mb-1">การอัปโหลดขัดข้อง ❌</p>
+                            <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-5 rounded-2xl text-center animate-shake shadow-xl shadow-red-500/10">
+                                <p className="font-bold text-xl mb-1">การอัปโหลดล้มเหลว ❌</p>
                                 <p className="text-xs opacity-80">{errorMessage}</p>
                             </div>
                         )}
+                        
+                        {/* Quick Troubleshooting Tip */}
+                        <div className="mt-8 p-4 bg-white/5 rounded-2xl border border-white/10 text-[10px] opacity-30 leading-relaxed">
+                            <p className="font-bold uppercase mb-1">Troubleshooting:</p>
+                            <p>ถ้าค้างที่ 0-1% กรุณาตรวจสอบว่า Firebase Storage Rules ตั้งค่าเป็น Public (allow read, write: if true;) และตั้งค่า CORS ใน Google Cloud Console แล้วหรือยัง</p>
+                        </div>
                     </form>
                 </div>
             );
@@ -272,10 +295,10 @@
                     <header className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
                         <div>
                             <h1 className="text-3xl font-black text-white flex items-center gap-3">
-                                <div className="p-2 bg-purple-600 rounded-xl"><Icons.Settings /></div>
+                                <div className="p-2 bg-purple-600 rounded-xl shadow-lg shadow-purple-600/20"><Icons.Settings /></div>
                                 แผงควบคุมแอดมิน
                             </h1>
-                            <p className="opacity-40 text-sm">จัดการคิวรูปภาพและการตั้งค่าระบบ</p>
+                            <p className="opacity-40 text-sm mt-1">จัดการคิวรูปภาพและการตั้งค่าระบบแบบ Real-time</p>
                         </div>
                         <div className="flex gap-4">
                             <button onClick={clearAllData} className="px-5 py-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-bold hover:bg-red-500 hover:text-white transition-all flex items-center gap-2">
@@ -284,11 +307,11 @@
                         </div>
                     </header>
 
-                    <div className="flex gap-4 mb-8 bg-white/5 p-1.5 rounded-2xl inline-flex">
-                        <button onClick={() => setActiveTab('queue')} className={`px-6 py-3 rounded-xl transition-all font-bold text-sm ${activeTab === 'queue' ? 'bg-white/10 shadow-lg text-white' : 'opacity-40'}`}>
+                    <div className="flex gap-4 mb-8 bg-white/5 p-1.5 rounded-2xl inline-flex shadow-inner">
+                        <button onClick={() => setActiveTab('queue')} className={`px-8 py-3 rounded-xl transition-all font-bold text-sm ${activeTab === 'queue' ? 'bg-white/10 shadow-lg text-white' : 'opacity-40 hover:opacity-100'}`}>
                             คิวภาพ ({pending.length})
                         </button>
-                        <button onClick={() => setActiveTab('settings')} className={`px-6 py-3 rounded-xl transition-all font-bold text-sm ${activeTab === 'settings' ? 'bg-white/10 shadow-lg text-white' : 'opacity-40'}`}>
+                        <button onClick={() => setActiveTab('settings')} className={`px-8 py-3 rounded-xl transition-all font-bold text-sm ${activeTab === 'settings' ? 'bg-white/10 shadow-lg text-white' : 'opacity-40 hover:opacity-100'}`}>
                             ตั้งค่าระบบ
                         </button>
                     </div>
@@ -297,91 +320,99 @@
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                             <section className="space-y-6">
                                 <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                                    <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
-                                    <h2 className="text-xl font-bold">รออนุมัติ</h2>
+                                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></div>
+                                    <h2 className="text-xl font-bold uppercase tracking-wider">รออนุมัติ</h2>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {pending.map(item => (
-                                        <div key={item.id} className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden group">
-                                            <div className="h-44 relative">
+                                        <div key={item.id} className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden group shadow-xl transition-transform hover:-translate-y-1">
+                                            <div className="h-48 relative">
                                                 <img src={item.imageUrl} className="w-full h-full object-cover" alt="" />
-                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-4">
-                                                    <button onClick={() => updateStatus(item.id, 'approved')} className="p-3 bg-green-500 rounded-2xl shadow-xl hover:scale-110 transition"><Icons.Check /></button>
-                                                    <button onClick={() => deleteItem(item.id)} className="p-3 bg-red-500 rounded-2xl shadow-xl hover:scale-110 transition"><Icons.Trash /></button>
+                                                <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-4">
+                                                    <button onClick={() => updateStatus(item.id, 'approved')} className="p-4 bg-green-500 rounded-2xl shadow-xl hover:scale-110 active:scale-95 transition"><Icons.Check /></button>
+                                                    <button onClick={() => deleteItem(item.id)} className="p-4 bg-red-500 rounded-2xl shadow-xl hover:scale-110 active:scale-95 transition"><Icons.Trash /></button>
                                                 </div>
                                             </div>
                                             <div className="p-4 bg-white/[0.02]">
                                                 <p className="font-bold text-sm truncate">{item.name}</p>
-                                                <p className="text-xs opacity-40 line-clamp-1">{item.message || '-'}</p>
+                                                <p className="text-xs opacity-40 line-clamp-1 mt-1 italic">"{item.message || '...'}"</p>
                                             </div>
                                         </div>
                                     ))}
-                                    {pending.length === 0 && <div className="col-span-full py-10 text-center opacity-20 italic bg-white/5 rounded-3xl border border-dashed border-white/10">ไม่มีภาพที่รอการตรวจสอบ</div>}
+                                    {pending.length === 0 && <div className="col-span-full py-20 text-center opacity-20 italic bg-white/5 rounded-[2rem] border-2 border-dashed border-white/10">ไม่มีภาพที่รอการตรวจสอบ</div>}
                                 </div>
                             </section>
 
                             <section className="space-y-6">
                                 <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                                    <h2 className="text-xl font-bold">อนุมัติแล้ว (คิวรันภาพ)</h2>
+                                    <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                                    <h2 className="text-xl font-bold uppercase tracking-wider">อนุมัติแล้ว (คิวรันภาพ)</h2>
                                 </div>
-                                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-3 custom-scrollbar">
                                     {approved.map((item, idx) => (
-                                        <div key={item.id} className={`flex items-center gap-4 p-4 rounded-3xl border transition-all ${idx === 0 ? 'bg-blue-600/20 border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-white/5 border-white/10'}`}>
-                                            <div className="relative">
-                                                <img src={item.imageUrl} className="w-20 h-20 rounded-2xl object-cover shadow-lg" />
-                                                {idx === 0 && <div className="absolute -top-2 -left-2 bg-blue-500 text-[10px] font-black px-2 py-1 rounded-lg animate-bounce">NOW</div>}
+                                        <div key={item.id} className={`flex items-center gap-5 p-5 rounded-[2rem] border transition-all duration-500 ${idx === 0 ? 'bg-blue-600/20 border-blue-500/50 shadow-2xl shadow-blue-500/10 scale-[1.02]' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
+                                            <div className="relative flex-shrink-0">
+                                                <img src={item.imageUrl} className="w-24 h-24 rounded-2xl object-cover shadow-2xl border border-white/10" />
+                                                {idx === 0 && <div className="absolute -top-3 -left-3 bg-blue-500 text-[10px] font-black px-2 py-1 rounded-lg animate-bounce shadow-lg">SHOWING</div>}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="font-bold text-lg truncate">{item.name}</p>
-                                                <p className="text-sm opacity-50 truncate italic">"{item.message || '...'}"</p>
+                                                <p className="font-bold text-xl truncate mb-1">{item.name}</p>
+                                                <p className="text-sm opacity-50 truncate italic font-light">"{item.message || '...'}"</p>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button onClick={() => updateStatus(item.id, 'pending')} className="p-2.5 text-yellow-500 hover:bg-yellow-500/10 rounded-xl transition"><Icons.X /></button>
-                                                <button onClick={() => deleteItem(item.id)} className="p-2.5 text-red-500 hover:bg-red-500/10 rounded-xl transition"><Icons.Trash /></button>
+                                                <button onClick={() => updateStatus(item.id, 'pending')} title="ส่งกลับไปรออนุมัติ" className="p-3 text-yellow-500 hover:bg-yellow-500/10 rounded-2xl transition"><Icons.X /></button>
+                                                <button onClick={() => deleteItem(item.id)} title="ลบถาวร" className="p-3 text-red-500 hover:bg-red-500/10 rounded-2xl transition"><Icons.Trash /></button>
                                             </div>
                                         </div>
                                     ))}
-                                    {approved.length === 0 && <div className="py-10 text-center opacity-20 italic">ยังไม่มีภาพที่ได้รับอนุญาต</div>}
+                                    {approved.length === 0 && <div className="py-20 text-center opacity-20 italic">ยังไม่มีภาพที่ได้รับอนุญาต</div>}
                                 </div>
                             </section>
                         </div>
                     ) : (
-                        <div className="bg-white/5 border border-white/10 rounded-3xl p-10 max-w-2xl mx-auto space-y-10">
-                            <div className="space-y-6">
-                                <h3 className="text-xl font-bold text-blue-400">เนื้อหาหน้าจอ</h3>
-                                <div><label className="block text-sm opacity-40 mb-2 font-bold uppercase tracking-wider">ชื่อหัวข้อ (Title)</label><input type="text" value={config.title} onChange={e => updateConfig('title', e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" /></div>
+                        <div className="bg-white/5 border border-white/10 rounded-[3rem] p-12 max-w-2xl mx-auto space-y-12 shadow-2xl">
+                            <div className="space-y-8">
+                                <h3 className="text-2xl font-black text-blue-400 tracking-tight">เนื้อหาหน้าจอ</h3>
+                                <div>
+                                    <label className="block text-xs opacity-40 mb-3 font-bold uppercase tracking-widest">ชื่อหัวข้อ (Title)</label>
+                                    <input type="text" value={config.title} onChange={e => updateConfig('title', e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-[1.5rem] px-6 py-4 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-inner" />
+                                </div>
                             </div>
-                            <div className="space-y-6 pt-10 border-t border-white/5">
-                                <h3 className="text-xl font-bold text-blue-400">การแสดงผล</h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                                    <div><label className="block text-sm opacity-40 mb-2 font-bold uppercase tracking-wider">ความเร็วสไลด์ (ms)</label><input type="number" step="500" value={config.transitionSpeed} onChange={e => updateConfig('transitionSpeed', parseInt(e.target.value) || 5000)} className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 outline-none" /></div>
-                                    <div className="flex items-center gap-4 bg-black/20 p-4 rounded-2xl border border-white/5">
-                                        <input type="checkbox" checked={config.autoPlay} onChange={e => updateConfig('autoPlay', e.target.checked)} className="w-6 h-6 accent-blue-500 cursor-pointer" id="autoplay-check" />
-                                        <label htmlFor="autoplay-check" className="font-bold cursor-pointer">เล่นอัตโนมัติ</label>
+                            <div className="space-y-8 pt-12 border-t border-white/10">
+                                <h3 className="text-2xl font-black text-blue-400 tracking-tight">การแสดงผล</h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-10">
+                                    <div>
+                                        <label className="block text-xs opacity-40 mb-3 font-bold uppercase tracking-widest">ความเร็วสไลด์ (ms)</label>
+                                        <input type="number" step="500" value={config.transitionSpeed} onChange={e => updateConfig('transitionSpeed', parseInt(e.target.value) || 5000)} className="w-full bg-black/40 border border-white/10 rounded-[1.5rem] px-6 py-4 outline-none shadow-inner" />
+                                    </div>
+                                    <div className="flex items-center gap-5 bg-black/30 p-6 rounded-[1.5rem] border border-white/5 shadow-inner">
+                                        <input type="checkbox" checked={config.autoPlay} onChange={e => updateConfig('autoPlay', e.target.checked)} className="w-7 h-7 accent-blue-500 cursor-pointer rounded-lg" id="autoplay-check" />
+                                        <label htmlFor="autoplay-check" className="font-bold cursor-pointer text-lg">เล่นอัตโนมัติ</label>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 glass-effect p-3 rounded-3xl border border-white/20 flex gap-4 shadow-2xl z-50">
-                        <button onClick={() => copyLink('')} className="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-2xl transition text-xs font-bold uppercase tracking-widest">
-                            <Icons.Link /> {copyStatus === 'customer' ? 'COPIED!' : 'Copy Customer Link'}
+                    {/* Quick Link Switcher */}
+                    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 glass-effect px-6 py-4 rounded-full border border-white/20 flex gap-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50">
+                        <button onClick={() => copyLink('')} className="flex items-center gap-3 px-2 py-1 hover:text-blue-400 transition text-[10px] font-black uppercase tracking-widest group">
+                            <Icons.Link /> <span className="group-hover:underline">{copyStatus === 'customer' ? 'COPIED!' : 'Customer Page'}</span>
                         </button>
-                        <div className="w-px bg-white/10"></div>
-                        <button onClick={() => copyLink('display')} className="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-2xl transition text-xs font-bold uppercase tracking-widest">
-                            <Icons.Link /> {copyStatus === 'display' ? 'COPIED!' : 'Copy Display Link'}
+                        <div className="w-px bg-white/10 h-6 my-auto"></div>
+                        <button onClick={() => copyLink('display')} className="flex items-center gap-3 px-2 py-1 hover:text-green-400 transition text-[10px] font-black uppercase tracking-widest group">
+                            <Icons.Link /> <span className="group-hover:underline">{copyStatus === 'display' ? 'COPIED!' : 'Display Screen'}</span>
                         </button>
-                        <div className="w-px bg-white/10"></div>
-                        <button onClick={() => copyLink('admin')} className="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-2xl transition text-xs font-bold uppercase tracking-widest">
-                            <Icons.Link /> {copyStatus === 'admin' ? 'COPIED!' : 'Copy Admin Link'}
+                        <div className="w-px bg-white/10 h-6 my-auto"></div>
+                        <button onClick={() => copyLink('admin')} className="flex items-center gap-3 px-2 py-1 hover:text-purple-400 transition text-[10px] font-black uppercase tracking-widest group">
+                            <Icons.Link /> <span className="group-hover:underline">{copyStatus === 'admin' ? 'COPIED!' : 'Admin Panel'}</span>
                         </button>
                     </div>
                 </div>
             );
         };
 
+        // --- View: Display ---
         const DisplayView = ({ config, queue, setView }) => {
             const [localIndex, setLocalIndex] = useState(0);
             const [isTransitioning, setIsTransitioning] = useState(false);
@@ -402,16 +433,19 @@
                     const nextIndex = (localIndex + 1) % approvedItems.length;
                     setLocalIndex(nextIndex);
                     setIsTransitioning(false);
-                    await updateDoc(doc(db, ...SETTINGS_COLLECTION, 'main'), { currentIndex: nextIndex });
-                }, 600);
+                    // Share current index to Cloud to let Admin know what is playing
+                    try {
+                        await updateDoc(doc(db, ...SETTINGS_COLLECTION, 'main'), { currentIndex: nextIndex });
+                    } catch(e) {}
+                }, 800);
             };
 
             if (approvedItems.length === 0) return (
                 <div className="h-screen flex flex-col items-center justify-center text-center p-12 bg-slate-950">
-                    <h1 className="text-8xl font-black mb-10 animate-pulse bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">{config.title}</h1>
-                    <div className="bg-white/5 p-16 rounded-[4rem] border border-white/10 backdrop-blur-3xl shadow-2xl">
-                        <div className="text-blue-500/30 flex justify-center mb-6 scale-150"><Icons.Image /></div>
-                        <p className="text-3xl font-bold opacity-30">Waiting for first photo...</p>
+                    <h1 className="text-8xl font-black mb-12 animate-pulse bg-clip-text text-transparent bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-600 drop-shadow-2xl">{config.title}</h1>
+                    <div className="bg-white/5 p-20 rounded-[5rem] border border-white/10 backdrop-blur-[100px] shadow-[0_0_100px_rgba(59,130,246,0.1)]">
+                        <div className="text-blue-500/20 flex justify-center mb-8 scale-[2]"><Icons.Image /></div>
+                        <p className="text-4xl font-light opacity-30 tracking-tight">Waiting for someone to share a photo...</p>
                     </div>
                 </div>
             );
@@ -420,53 +454,58 @@
             const item = approvedItems[safeIdx];
 
             return (
-                <div className="h-screen w-screen bg-black flex flex-col relative overflow-hidden cursor-none">
-                    <div className="absolute inset-0 blur-[150px] opacity-40 scale-150 transition-all duration-1000" style={{backgroundImage: `url(${item.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center'}}></div>
+                <div className="h-screen w-screen bg-black flex flex-col relative overflow-hidden cursor-none" onDoubleClick={() => setView('admin')}>
+                    {/* Background Dynamic Ambience */}
+                    <div className="absolute inset-0 blur-[180px] opacity-30 scale-150 transition-all duration-1500" style={{backgroundImage: `url(${item.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center'}}></div>
                     
-                    <div className="absolute top-0 w-full p-12 flex justify-between items-start z-20">
-                        <div className="space-y-2">
-                            <h2 className="text-6xl font-black italic tracking-tighter text-shadow-lg text-white/95">{config.title}</h2>
-                            <div className="flex items-center gap-3">
-                                <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
-                                <p className="text-blue-400 font-black tracking-[0.4em] uppercase text-lg opacity-90">LIVE PHOTO STREAM</p>
+                    {/* Header */}
+                    <div className="absolute top-0 w-full p-16 flex justify-between items-start z-20">
+                        <div className="space-y-3">
+                            <h2 className="text-7xl font-black italic tracking-tighter text-shadow-lg text-white/95 leading-tight">{config.title}</h2>
+                            <div className="flex items-center gap-4">
+                                <div className="w-3.5 h-3.5 rounded-full bg-red-600 animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.8)]"></div>
+                                <p className="text-blue-400 font-black tracking-[0.5em] uppercase text-2xl opacity-90 drop-shadow-lg">LIVE PHOTO FEED</p>
                             </div>
                         </div>
-                        <div className="text-5xl font-mono font-extralight text-white/40 tracking-tighter drop-shadow-2xl">
+                        <div className="text-6xl font-mono font-thin text-white/40 tracking-tighter drop-shadow-2xl">
                             <LiveTime />
                         </div>
                     </div>
 
-                    <div className={`flex-1 flex items-center justify-center p-20 z-10 transition-all duration-1000 transform ${isTransitioning ? 'opacity-0 scale-90 blur-2xl rotate-2' : 'opacity-100 scale-100 blur-0 rotate-0'}`}>
+                    {/* Image Area */}
+                    <div className={`flex-1 flex items-center justify-center p-24 z-10 transition-all duration-1000 transform ${isTransitioning ? 'opacity-0 scale-90 blur-3xl rotate-1' : 'opacity-100 scale-100 blur-0 rotate-0'}`}>
                         <div className="relative">
-                            <div className="absolute -inset-10 bg-blue-500/10 blur-[100px] rounded-full animate-pulse"></div>
-                            <img src={item.imageUrl} className="max-w-full max-h-[70vh] object-contain rounded-[2.5rem] shadow-[0_40px_100px_-20px_rgba(0,0,0,1)] border-4 border-white/5" />
+                            <div className="absolute -inset-20 bg-blue-500/5 blur-[120px] rounded-full animate-pulse"></div>
+                            <img src={item.imageUrl} className="max-w-full max-h-[72vh] object-contain rounded-[3rem] shadow-[0_50px_120px_-30px_rgba(0,0,0,1)] border-[6px] border-white/5" />
                         </div>
                     </div>
 
-                    <div className={`glass-effect w-full p-12 md:p-16 z-20 flex items-center gap-14 transition-all duration-1000 ${isTransitioning ? 'translate-y-40 opacity-0' : 'translate-y-0 opacity-100'}`}>
-                        <div className="w-28 h-28 rounded-[2rem] bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-5xl font-black shadow-2xl flex-shrink-0 text-white transform rotate-3">
+                    {/* Bottom Info Bar */}
+                    <div className={`glass-effect w-full p-14 md:p-20 z-20 flex items-center gap-16 transition-all duration-1000 transform ${isTransitioning ? 'translate-y-60 opacity-0' : 'translate-y-0 opacity-100'}`}>
+                        <div className="w-32 h-32 rounded-[2.5rem] bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-6xl font-black shadow-[0_20px_50px_rgba(37,99,235,0.4)] flex-shrink-0 text-white transform rotate-3 hover:rotate-0 transition-transform">
                             {item.name ? item.name[0].toUpperCase() : '?'}
                         </div>
-                        <div className="flex-1 space-y-3">
-                            <div className="flex items-center gap-6">
-                                <h3 className="text-7xl font-black text-white text-shadow-lg tracking-tight">{item.name}</h3>
+                        <div className="flex-1 space-y-4">
+                            <div className="flex items-center gap-8">
+                                <h3 className="text-8xl font-black text-white text-shadow-lg tracking-tight leading-none">{item.name}</h3>
                             </div>
-                            <p className="text-4xl text-white/70 italic font-light tracking-wide line-clamp-1 leading-relaxed">
-                                {item.message ? `"${item.message}"` : "Enjoying the moment together"}
+                            <p className="text-5xl text-white/70 italic font-extralight tracking-tight line-clamp-1 leading-normal pr-10">
+                                {item.message ? `"${item.message}"` : "Sharing memories with you"}
                             </p>
                         </div>
-                        <div className="hidden xl:flex border-l border-white/10 pl-14 items-center gap-8">
-                            <div className="text-right">
-                                <p className="text-sm uppercase tracking-[0.5em] opacity-30 font-black mb-1">Join Now</p>
-                                <p className="text-xl font-bold text-blue-400">Scan QR to Send</p>
+                        <div className="hidden 2xl:flex border-l border-white/10 pl-20 items-center gap-10">
+                            <div className="text-right space-y-2">
+                                <p className="text-sm uppercase tracking-[0.6em] opacity-30 font-black">Join the Feed</p>
+                                <p className="text-2xl font-black text-blue-400 drop-shadow-lg">Scan to Share</p>
                             </div>
-                            <div className="w-24 h-24 bg-white rounded-3xl p-1.5 flex items-center justify-center shadow-2xl">
-                                <div className="text-black text-[10px] font-black text-center leading-tight">SCAN<br/>ME</div>
+                            <div className="w-28 h-28 bg-white rounded-[2rem] p-2 flex items-center justify-center shadow-[0_25px_50px_rgba(0,0,0,0.5)] transform -rotate-2 hover:rotate-0 transition-all">
+                                <div className="text-black text-xs font-black text-center leading-none">SCAN<br/><span className="text-[30px] leading-none">📸</span><br/>HERE</div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="absolute bottom-0 left-0 h-2 bg-gradient-to-r from-blue-600 to-purple-600 z-30" style={{
+                    {/* Progress Loader */}
+                    <div className="absolute bottom-0 left-0 h-2.5 bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 z-30 shadow-[0_-5px_15px_rgba(59,130,246,0.3)]" style={{
                         width: '100%', 
                         transform: `scaleX(${isTransitioning ? 0 : 1})`, 
                         transformOrigin: 'left', 
@@ -481,7 +520,7 @@
             const viewParam = urlParams.get('view') || 'customer';
             
             const [user, setUser] = useState(null);
-            const [config, setConfig] = useState({ title: "Welcome", transitionSpeed: 5000, autoPlay: true, theme: 'dark', currentIndex: 0 });
+            const [config, setConfig] = useState({ title: "MEMORIES LIVE", transitionSpeed: 5000, autoPlay: true, theme: 'dark', currentIndex: 0 });
             const [queue, setQueue] = useState([]);
             const [loading, setLoading] = useState(true);
 
@@ -513,15 +552,15 @@
 
             if (loading) return (
                 <div className="h-screen flex flex-col items-center justify-center bg-slate-950">
-                    <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6 shadow-2xl shadow-blue-500/20"></div>
-                    <p className="text-blue-500 font-black tracking-[0.3em] uppercase text-xs animate-pulse">Initializing System...</p>
+                    <div className="w-20 h-20 border-[6px] border-blue-600 border-t-transparent rounded-full animate-spin mb-8 shadow-[0_0_40px_rgba(59,130,246,0.2)]"></div>
+                    <p className="text-blue-500 font-black tracking-[0.5em] text-sm animate-pulse">CONNECTING TO STREAM...</p>
                 </div>
             );
 
             return (
-                <div className="min-h-screen selection:bg-blue-500 selection:text-white">
+                <div className="min-h-screen selection:bg-blue-600 selection:text-white">
                     {viewParam === 'admin' && <AdminView config={config} queue={queue} />}
-                    {viewParam === 'display' && <DisplayView config={config} queue={queue} />}
+                    {viewParam === 'display' && <DisplayView config={config} queue={queue} setView={setUser} />}
                     {viewParam === 'customer' && <CustomerView config={config} user={user} />}
                 </div>
             );
