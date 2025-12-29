@@ -2,14 +2,22 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- ล็อกไม่ให้ซูมหน้าเว็บ -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Loyalty Premium - Modal System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.0/lucide.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Kanit', sans-serif; background-color: #f8fafc; }
+        body { 
+            font-family: 'Kanit', sans-serif; 
+            background-color: #f8fafc;
+            /* ป้องกันการเลือกข้อความและการลากเพื่อซูมในบางเบราว์เซอร์ */
+            touch-action: pan-x pan-y;
+            -webkit-user-select: none;
+            user-select: none;
+        }
         .animate-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
@@ -92,7 +100,7 @@
                     <i data-lucide="sparkles" class="w-5 h-5"></i>
                 </div>
                 <div>
-                    <h1 id="nav-store-name" class="font-black text-lg text-slate-800 truncate leading-none">Store</h1>
+                    <h1 id="nav-store-name" class="font-black text-lg text-slate-800 truncate leading-none text-left">Store</h1>
                     <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Loyalty Member</p>
                 </div>
             </div>
@@ -187,7 +195,7 @@
             const id = 'm' + Date.now();
             const bg = type === 'error' ? 'bg-rose-500' : 'bg-slate-900';
             container.innerHTML += `<div id="${id}" class="${bg} text-white px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-3 animate-in text-sm font-bold border border-white/10">
-                <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle'}" class="w-5 h-5"></i> ${text}
+                <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle'}" class="w-4 h-4"></i> ${text}
             </div>`;
             refreshIcons();
             setTimeout(() => document.getElementById(id)?.remove(), 4000);
@@ -220,6 +228,225 @@
             return { name: 'Silver', class: 'tier-silver', icon: 'shield' };
         };
 
+        // --- Auth Actions ---
+
+        window.requestOtpPopup = () => {
+            openModal("เข้าสู่ระบบสมาชิก", `
+                <div class="space-y-6">
+                    <div class="space-y-4">
+                        <div class="space-y-1 text-left">
+                            <label class="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">เบอร์โทรศัพท์</label>
+                            <input id="login-phone" type="tel" placeholder="08XXXXXXXX" class="w-full p-5 rounded-3xl bg-slate-50 border-none outline-none font-black text-center text-xl focus:ring-4 focus:ring-indigo-50 transition-all" />
+                        </div>
+                        <div class="space-y-1 text-left">
+                            <label class="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">ชื่อที่ใช้แสดงผล</label>
+                            <input id="login-name" type="text" placeholder="ชื่อเล่น" class="w-full p-5 rounded-3xl bg-slate-50 border-none outline-none font-bold text-center text-lg focus:ring-4 focus:ring-indigo-50 transition-all" />
+                        </div>
+                        <button onclick="handleRequestOtp()" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-2xl shadow-indigo-100 hover:bg-indigo-700 mt-4">ขอรหัสยืนยัน OTP</button>
+                    </div>
+                    <p class="text-[10px] text-center text-slate-400 font-medium">ระบบจะส่งรหัสผ่านทาง SMS เพื่อความปลอดภัยสูงสุด</p>
+                </div>
+            `);
+        };
+
+        window.handleRequestOtp = async () => {
+            const phone = document.getElementById('login-phone').value;
+            const name = document.getElementById('login-name').value;
+            if (!phone || phone.length < 10) return showMsg("กรุณาระบุเบอร์โทรให้ถูกต้อง", "error");
+            
+            let formattedPhone = phone.startsWith('0') ? '+66' + phone.substring(1) : phone;
+            try {
+                if (!window.recaptchaVerifier) window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
+                state.tempPhone = phone;
+                state.confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, window.recaptchaVerifier);
+                showMsg("รหัส OTP ถูกส่งแล้ว");
+                openModal("ยืนยันรหัส OTP", `
+                    <div class="space-y-6 text-center">
+                        <p class="text-slate-500 font-medium text-sm">กรอกรหัส 6 หลักที่ได้รับทางเบอร์<br><span class="text-indigo-600 font-black">${phone}</span></p>
+                        <input id="login-otp" type="number" placeholder="XXXXXX" class="w-full p-6 rounded-3xl bg-slate-50 border-none outline-none font-black text-center text-3xl tracking-[1.2rem] otp-input focus:ring-4 focus:ring-emerald-50" />
+                        <button onclick="handleVerifyOtp('${name}')" class="w-full bg-emerald-600 text-white py-5 rounded-3xl font-black shadow-2xl shadow-emerald-100">ตรวจสอบและเข้าใช้งาน</button>
+                        <button onclick="requestOtpPopup()" class="text-slate-400 font-bold text-xs">ขอรหัสใหม่หรือเปลี่ยนเบอร์</button>
+                    </div>
+                `);
+            } catch (e) { 
+                showMsg("ล้มเหลว: " + e.message, "error"); 
+                if (window.recaptchaVerifier) window.recaptchaVerifier.clear(); 
+            }
+        };
+
+        window.handleVerifyOtp = async (name) => {
+            const code = document.getElementById('login-otp').value;
+            if (!code || code.length !== 6) return showMsg("ระบุรหัส 6 หลัก", "error");
+            try {
+                const result = await state.confirmationResult.confirm(code);
+                const user = result.user;
+                const userRef = doc(db, 'artifacts', finalAppId, 'public', 'data', 'users', user.uid);
+                const userSnap = await getDoc(userRef);
+                if (!userSnap.exists()) {
+                    await setDoc(userRef, { 
+                        uid: user.uid, phone: state.tempPhone, name: name || 'Anonymous', 
+                        points: 0, totalPointsEarned: 0, role: 'customer', createdAt: serverTimestamp() 
+                    });
+                }
+                closeModal();
+                showMsg("ยินดีต้อนรับครับ!");
+            } catch (e) { showMsg("รหัสยืนยันไม่ถูกต้อง", "error"); }
+        };
+
+        window.handleLogout = async () => { await signOut(auth); location.reload(); };
+
+        // --- Admin Actions ---
+
+        window.openGivePointsModal = () => {
+            openModal("ออกแต้มสะสม", `
+                <div class="space-y-8 text-center pt-2">
+                    <div class="bg-indigo-50 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto text-indigo-600 shadow-inner ring-8 ring-indigo-50/50">
+                        <i data-lucide="qr-code" class="w-12 h-12"></i>
+                    </div>
+                    <div class="space-y-3">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">ระบุจำนวนแต้มเบื้องต้น</label>
+                        <input id="admin-pts-input" type="number" value="10" class="w-full text-6xl text-center font-black text-indigo-600 bg-transparent outline-none focus:ring-0" />
+                        <div class="bg-indigo-50 py-2 px-4 rounded-full inline-block">
+                            <span class="text-[10px] font-black text-indigo-400 uppercase">คูณ X${state.config.multiplier} = </span>
+                            <span id="pts-preview" class="text-sm font-black text-indigo-600">${10 * state.config.multiplier} แต้ม</span>
+                        </div>
+                    </div>
+                    <button onclick="handleGenerateQr()" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-2xl shadow-indigo-100 hover:scale-[1.02] transition-all">สร้าง QR Code สแกนรับแต้ม</button>
+                </div>
+            `);
+            const input = document.getElementById('admin-pts-input');
+            input.addEventListener('input', () => {
+                document.getElementById('pts-preview').innerText = (parseInt(input.value || 0) * state.config.multiplier) + " แต้ม";
+            });
+        };
+
+        window.handleGenerateQr = async () => {
+            const pts = document.getElementById('admin-pts-input').value;
+            const finalPts = parseInt(pts) * state.config.multiplier;
+            try {
+                const docRef = await addDoc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'qr_tokens'), {
+                    points: finalPts, status: 'active', createdAt: serverTimestamp()
+                });
+                const url = `${window.location.origin}${window.location.pathname}?token=${docRef.id}`;
+                openModal("สแกนเพื่อรับแต้ม", `
+                    <div class="flex flex-col items-center gap-6 p-4 text-center">
+                        <div class="space-y-1">
+                            <h4 class="font-black text-4xl text-indigo-600">${finalPts}</h4>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">สะสมเพิ่มทันที</p>
+                        </div>
+                        <div id="modal-qrcode" class="p-6 bg-white rounded-[3rem] shadow-inner border border-slate-50 ring-1 ring-slate-100"></div>
+                        <p class="text-[9px] text-slate-400 font-mono break-all leading-relaxed px-4">${url}</p>
+                        <button onclick="closeModal()" class="w-full py-4 bg-slate-900 text-white rounded-2xl font-black mt-4 shadow-xl">เสร็จสิ้น</button>
+                    </div>
+                `);
+                new QRCode(document.getElementById("modal-qrcode"), { text: url, width: 200, height: 200, colorDark: "#4f46e5" });
+            } catch (e) { showMsg("ระบบไม่สามารถสร้าง QR ได้", "error"); }
+        };
+
+        window.openVerifyCouponModal = () => {
+            openModal("ยืนยันคูปองรางวัล", `
+                <div class="space-y-6">
+                    <p class="text-center text-slate-500 text-sm font-medium">ให้ลูกค้ายื่นหน้าคูปองที่มีรหัส 6 หลัก<br>แล้วกรอกรหัสลงในช่องด้านล่าง</p>
+                    <input id="verify-code-input" placeholder="รหัสคูปอง" class="w-full p-5 rounded-3xl bg-slate-50 border-none text-center font-black text-4xl uppercase tracking-tighter outline-none focus:ring-4 focus:ring-indigo-50" maxlength="6" />
+                    <button onclick="handleVerifyCoupon()" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black shadow-2xl">ยืนยันและหักสิทธิ์</button>
+                </div>
+            `);
+        };
+
+        window.handleVerifyCoupon = async () => {
+            const code = document.getElementById('verify-code-input').value.toUpperCase();
+            const q = state.coupons.find(c => c.code === code && c.status === 'active');
+            if (!q) return showMsg("ไม่พบรหัส หรือคูปองถูกใช้ไปแล้ว", "error");
+            try {
+                await updateDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'coupons', q.id), { status: 'used', verifiedAt: serverTimestamp() });
+                showMsg("ยืนยันสิทธิ์รางวัลสำเร็จ!");
+                closeModal();
+            } catch (e) { showMsg("บันทึกข้อมูลล้มเหลว", "error"); }
+        };
+
+        window.openSettingsModal = () => {
+            openModal("ตั้งค่าร้านค้า", `
+                <div class="space-y-8 pb-4">
+                    <div class="space-y-6">
+                        <div class="space-y-2 text-left">
+                            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">ชื่อร้านค้าที่ลูกค้าเห็น</label>
+                            <input id="set-store-name" value="${state.config.storeName}" class="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold outline-none focus:ring-4 focus:ring-indigo-50" />
+                        </div>
+                        <div class="space-y-2 text-left">
+                            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">แต้มคูณ (Rule Engine)</label>
+                            <div class="flex gap-3">
+                                ${[1,2,3].map(m => `<button onclick="handleSaveRule(${m})" class="flex-1 py-4 rounded-2xl border-2 transition-all font-black ${state.config.multiplier === m ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-slate-100 text-slate-400'}">X${m}</button>`).join('')}
+                            </div>
+                        </div>
+                        <button onclick="handleSaveConfig()" class="w-full bg-slate-900 text-white py-5 rounded-3xl font-black shadow-xl">บันทึกข้อมูลทั่วไป</button>
+                    </div>
+                    
+                    <div class="pt-8 border-t border-slate-100 space-y-6">
+                        <div class="flex justify-between items-center">
+                            <h4 class="font-black text-slate-800">จัดการของรางวัล</h4>
+                            <button onclick="openAddRewardModal()" class="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"><i data-lucide="plus" class="w-5 h-5"></i></button>
+                        </div>
+                        <div id="reward-list-mini" class="space-y-3">
+                            ${state.rewards.length > 0 ? state.rewards.map(r => `
+                                <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100/50">
+                                    <div class="text-left">
+                                        <p class="font-bold text-slate-800 text-sm">${r.name}</p>
+                                        <p class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${r.points} แต้ม</p>
+                                    </div>
+                                    <button onclick="handleDeleteReward('${r.id}')" class="p-2 text-rose-300 hover:text-rose-500 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                </div>
+                            `).join('') : '<p class="text-center py-4 text-xs text-slate-400 italic">ยังไม่มีรางวัล</p>'}
+                        </div>
+                    </div>
+                </div>
+            `);
+        };
+
+        window.openAddRewardModal = () => {
+            openModal("เพิ่มของรางวัลใหม่", `
+                <div class="space-y-6">
+                    <div class="space-y-4">
+                        <input id="reward-name-input" placeholder="เช่น กาแฟฟรี 1 แก้ว" class="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold outline-none" />
+                        <input id="reward-pts-input" type="number" placeholder="ใช้แต้มเท่าไหร่?" class="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold outline-none" />
+                    </div>
+                    <button onclick="handleSaveNewReward()" class="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black">บันทึกของรางวัล</button>
+                    <button onclick="openSettingsModal()" class="w-full text-slate-400 font-bold text-xs py-2">ยกเลิกและย้อนกลับ</button>
+                </div>
+            `);
+        };
+
+        window.handleSaveNewReward = async () => {
+            const name = document.getElementById('reward-name-input').value;
+            const pts = document.getElementById('reward-pts-input').value;
+            if (!name || isNaN(pts)) return showMsg("กรุณาระบุข้อมูลให้ครบ", "error");
+            try {
+                await addDoc(collection(db, 'artifacts', finalAppId, 'public', 'data', 'rewards'), { 
+                    name, points: parseInt(pts), createdAt: serverTimestamp() 
+                });
+                showMsg("เพิ่มรางวัลสำเร็จ");
+                openSettingsModal();
+            } catch (e) { showMsg("เกิดข้อผิดพลาด", "error"); }
+        };
+
+        window.handleDeleteReward = async (id) => {
+            try {
+                await deleteDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'rewards', id));
+                showMsg("ลบรางวัลแล้ว");
+                openSettingsModal();
+            } catch (e) { showMsg("ลบไม่สำเร็จ", "error"); }
+        };
+
+        window.handleSaveConfig = async () => {
+            const name = document.getElementById('set-store-name').value;
+            try {
+                await setDoc(doc(db, 'artifacts', finalAppId, 'public', 'data', 'settings', 'app_config'), { ...state.config, storeName: name });
+                showMsg("บันทึกการตั้งค่าสำเร็จ");
+                closeModal();
+            } catch (e) { showMsg("ล้มเหลว", "error"); }
+        };
+
+        window.handleSaveRule = (m) => { state.config.multiplier = m; window.handleSaveConfig(); };
+
         // --- UI Rendering ---
 
         const renderLanding = (el) => {
@@ -241,6 +468,7 @@
                     <p class="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">Modern Business Solution</p>
                 </div>
             `;
+            refreshIcons();
         };
 
         const renderCustomerDashboard = (el) => {
@@ -258,7 +486,7 @@
                                 </div>
                                 <div class="bg-white/20 p-2.5 rounded-2xl backdrop-blur-md border border-white/20"><i data-lucide="${tier.icon}" class="w-5 h-5"></i></div>
                             </div>
-                            <div>
+                            <div class="text-left">
                                 <p class="text-[10px] font-black uppercase tracking-[0.25em] opacity-60 ml-1">คะแนนสะสมปัจจุบัน</p>
                                 <h2 class="text-7xl font-black tracking-tighter mt-1">${(state.userData?.points || 0).toLocaleString()} <span class="text-lg font-bold">pts</span></h2>
                             </div>
@@ -270,12 +498,12 @@
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-white border border-slate-100 p-7 rounded-[2.5rem] flex flex-col gap-2 shadow-sm">
+                        <div class="bg-white border border-slate-100 p-7 rounded-[2.5rem] flex flex-col gap-2 shadow-sm text-left">
                             <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 mb-2 shadow-inner"><i data-lucide="trending-up" class="w-6 h-6"></i></div>
                             <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Total Earned</h4>
                             <p class="text-2xl font-black text-emerald-600">${(state.userData?.totalPointsEarned || 0).toLocaleString()}</p>
                         </div>
-                        <div class="bg-white border border-slate-100 p-7 rounded-[2.5rem] flex flex-col gap-2 shadow-sm">
+                        <div class="bg-white border border-slate-100 p-7 rounded-[2.5rem] flex flex-col gap-2 shadow-sm text-left">
                             <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 mb-2 shadow-inner"><i data-lucide="history" class="w-6 h-6"></i></div>
                             <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Activity Count</h4>
                             <p class="text-2xl font-black text-indigo-600">${state.transactions.length}</p>
@@ -289,7 +517,7 @@
                         </div>
                         <div class="space-y-4">
                             ${state.transactions.slice(0, 3).map(t => `
-                                <div class="bg-white border border-slate-50 p-5 rounded-3xl flex justify-between items-center shadow-sm group hover:border-indigo-100 transition-all">
+                                <div class="bg-white border border-slate-50 p-5 rounded-3xl flex justify-between items-center shadow-sm group hover:border-indigo-100 transition-all text-left">
                                     <div class="flex items-center gap-4">
                                         <div class="w-12 h-12 ${t.amount > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} rounded-2xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
                                             <i data-lucide="${t.amount > 0 ? 'arrow-up-right' : 'arrow-down-right'}" class="w-6 h-6"></i>
@@ -306,6 +534,7 @@
                     </div>
                 </div>
             `;
+            refreshIcons();
         };
 
         const renderAdminReport = (el) => {
@@ -313,13 +542,13 @@
             const totalRedeemed = state.transactions.filter(t => t.type === 'redeem').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
             el.innerHTML = `
                 <div class="space-y-8 animate-in pt-2">
-                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter">Business<br>Dashboard</h2>
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter text-left">Business<br>Dashboard</h2>
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-slate-900 p-7 rounded-[2.5rem] text-white shadow-2xl shadow-slate-200">
+                        <div class="bg-slate-900 p-7 rounded-[2.5rem] text-white shadow-2xl shadow-slate-200 text-left">
                             <p class="text-[10px] font-black opacity-40 uppercase tracking-[0.2em] mb-2">Customers</p>
                             <h3 class="text-4xl font-black">${state.allCustomers.length}</h3>
                         </div>
-                        <div class="bg-white border border-slate-100 p-7 rounded-[2.5rem] shadow-sm">
+                        <div class="bg-white border border-slate-100 p-7 rounded-[2.5rem] shadow-sm text-left">
                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Issued Pts</p>
                             <h3 class="text-4xl font-black text-indigo-600">${totalGiven.toLocaleString()}</h3>
                         </div>
@@ -327,7 +556,7 @@
                     
                     <div class="bg-indigo-50 border border-indigo-100 p-9 rounded-[3.5rem] space-y-8 shadow-inner shadow-indigo-100/50">
                         <div class="flex justify-between items-end">
-                            <div>
+                            <div class="text-left">
                                 <h4 class="font-black text-slate-800 text-lg">สถิติการใช้งาน</h4>
                                 <p class="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">Redemption Rate</p>
                             </div>
@@ -339,13 +568,13 @@
                     </div>
 
                     <div class="space-y-5">
-                        <h4 class="font-black text-xl text-slate-800 px-2 tracking-tight">ลูกค้าสะสมสูงสุด</h4>
+                        <h4 class="font-black text-xl text-slate-800 px-2 tracking-tight text-left">ลูกค้าสะสมสูงสุด</h4>
                         <div class="space-y-3">
                             ${state.allCustomers.sort((a,b) => (b.points||0) - (a.points||0)).slice(0, 5).map((c, i) => `
                                 <div class="bg-white p-5 rounded-3xl border border-slate-50 flex justify-between items-center shadow-sm">
                                     <div class="flex items-center gap-4">
                                         <div class="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center font-black text-indigo-600 text-xs shadow-inner">${i+1}</div>
-                                        <div>
+                                        <div class="text-left">
                                             <p class="font-bold text-sm text-slate-800">${c.name || 'Anonymous'}</p>
                                             <p class="text-[10px] text-slate-400 font-medium mt-0.5">${c.phone}</p>
                                         </div>
@@ -357,12 +586,13 @@
                     </div>
                 </div>
             `;
+            refreshIcons();
         };
 
         const renderRewards = (el) => {
             el.innerHTML = `
                 <div class="space-y-8 animate-in pt-2 pb-10">
-                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter">แลกของรางวัล</h2>
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter text-left">แลกของรางวัล</h2>
                     <div class="grid grid-cols-1 gap-6">
                         ${state.rewards.length > 0 ? state.rewards.map(r => `
                             <div class="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden group">
@@ -370,7 +600,7 @@
                                     <i data-lucide="gift" class="w-16 h-16 text-indigo-100"></i>
                                     <div class="absolute top-6 right-6 bg-slate-900 text-white px-5 py-2 rounded-2xl text-sm font-black shadow-2xl">${r.points} <span class="text-[9px] uppercase opacity-60 ml-1">pts</span></div>
                                 </div>
-                                <div class="p-8">
+                                <div class="p-8 text-left">
                                     <h3 class="font-black text-2xl text-slate-800 mb-2">${r.name}</h3>
                                     <p class="text-sm text-slate-400 font-medium mb-8 leading-relaxed">ใช้คะแนนของคุณแลกรับสิทธิ์ได้ทันทีที่สาขา</p>
                                     <button onclick="handleRedeem('${r.id}')" class="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black shadow-xl disabled:opacity-30" ${state.userData?.points < r.points ? 'disabled' : ''}>
@@ -382,12 +612,13 @@
                     </div>
                 </div>
             `;
+            refreshIcons();
         };
 
         const renderCoupons = (el) => {
             el.innerHTML = `
                 <div class="space-y-8 animate-in pt-2 pb-10">
-                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter">คูปองของฉัน</h2>
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter text-left">คูปองของฉัน</h2>
                     <div class="space-y-6">
                         ${state.coupons.map(c => `
                             <div class="bg-white border-2 border-dashed ${c.status === 'used' ? 'opacity-40 border-slate-200' : 'border-indigo-100'} p-8 rounded-[3rem] text-center space-y-6 relative overflow-hidden shadow-sm">
@@ -398,7 +629,7 @@
                                 </div>
                                 <div class="bg-slate-50 p-6 rounded-[2rem] flex flex-col items-center relative z-10 shadow-inner">
                                     <div id="qr-${c.id}" class="mb-4 bg-white p-3 rounded-2xl"></div>
-                                    <p class="font-black text-slate-800 text-lg uppercase">${c.rewardName}</p>
+                                    <p class="font-black text-slate-800 text-lg uppercase leading-tight">${c.rewardName}</p>
                                 </div>
                                 <p class="text-[10px] text-slate-400 font-bold italic">โปรดยื่นรหัสนี้ให้กับพนักงานที่เคาน์เตอร์</p>
                             </div>
@@ -410,15 +641,16 @@
                 const container = document.getElementById(`qr-${c.id}`);
                 if (container) new QRCode(container, { text: c.code, width: 100, height: 100, colorDark: c.status === 'used' ? '#94a3b8' : '#4f46e5' });
             });
+            refreshIcons();
         };
 
         const renderHistory = (el) => {
             el.innerHTML = `
                 <div class="space-y-8 animate-in pt-2 pb-10">
-                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter">ประวัติรายการ</h2>
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tighter text-left">ประวัติรายการ</h2>
                     <div class="space-y-4">
                         ${state.transactions.map(t => `
-                            <div class="bg-white border border-slate-50 p-6 rounded-[2rem] flex justify-between items-center shadow-sm">
+                            <div class="bg-white border border-slate-50 p-6 rounded-[2rem] flex justify-between items-center shadow-sm text-left">
                                 <div class="flex items-center gap-5">
                                     <div class="w-14 h-14 ${t.amount > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} rounded-[1.25rem] flex items-center justify-center">
                                         <i data-lucide="${t.amount > 0 ? 'plus' : 'minus'}" class="w-6 h-6"></i>
@@ -434,9 +666,10 @@
                     </div>
                 </div>
             `;
+            refreshIcons();
         };
 
-        // --- Navigation Logic ---
+        // --- Core Navigation ---
 
         const updateUI = () => {
             const main = document.getElementById('main-content');
@@ -444,7 +677,7 @@
             const bNav = document.getElementById('bottom-nav');
             if (!main || !header || !bNav) return;
             
-            if (!state.userData) {
+            if (!state.user || !state.userData) {
                 renderLanding(main);
                 header.classList.add('hidden');
                 bNav.classList.add('hidden');
@@ -491,19 +724,20 @@
                     ${state.view === i.id ? '<div class="absolute -bottom-1 w-1 h-1 bg-indigo-600 rounded-full"></div>' : ''}
                 </button>
             `).join('');
+            refreshIcons();
         };
 
-        // --- Export to Window for Global Scope ---
+        // --- Window Binding for Global Calls ---
         window.updateUI = updateUI;
         window.switchRole = (r) => { state.role = r; state.view = r === 'admin' ? 'admin_report' : 'dashboard'; window.updateUI(); };
         window.switchView = (v) => { state.view = v; window.updateUI(); };
 
-        // --- Data Sync ---
+        // --- Firebase Listeners ---
 
         const startDataSync = (u) => {
             const appId = finalAppId;
             onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_config'), (d) => { if (d.exists()) state.config = d.data(); window.updateUI(); }, (e) => console.warn(e));
-            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.uid), (d) => { if (d.exists()) state.userData = d.data(); window.updateUI(); }, (e) => console.warn(e));
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.uid), (d) => { if (d.exists()) { state.userData = d.data(); window.updateUI(); } else { state.userData = null; window.updateUI(); } }, (e) => console.warn(e));
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'rewards'), (s) => { state.rewards = s.docs.map(d => ({id: d.id, ...d.data()})); window.updateUI(); }, (e) => console.warn(e));
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (s) => { state.allCustomers = s.docs.map(d => d.data()); window.updateUI(); }, (e) => console.warn(e));
             
@@ -519,7 +753,7 @@
                 window.updateUI();
             }, (e) => console.warn(e));
 
-            // URL Token Redemption
+            // URL Redemption
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
             if (token) {
@@ -550,8 +784,6 @@
             } else showMsg("คิวอาร์นี้ถูกใช้ไปแล้ว", "error");
         };
 
-        // --- Loyalty Handlers ---
-
         window.handleRedeem = async (rid) => {
             const reward = state.rewards.find(r => r.id === rid);
             if (!reward || !state.userData || state.userData.points < reward.points) return showMsg("แต้มไม่พอ", "error");
@@ -577,7 +809,7 @@
             } catch (e) { showMsg(e.message, "error"); }
         };
 
-        // --- Initialization ---
+        // --- Initialize Auth ---
 
         onAuthStateChanged(auth, (u) => {
             const loader = document.getElementById('loading-screen');
@@ -593,7 +825,6 @@
             }
         });
 
-        // Ensure icons load on initial page paint
         window.addEventListener('DOMContentLoaded', () => {
             setTimeout(refreshIcons, 500);
         });
